@@ -95,7 +95,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatus() {
         val pending = NotificationStore.pending(this).size
-        val configured = SecureConfig.getServerUrl(this).isNotBlank() && SecureConfig.getToken(this).isNotBlank()
+        val configured = SecureConfig.getServerUrl(this).isNotBlank() &&
+            SecureConfig.getToken(this).isNotBlank()
         status.text = "قارئ الإشعارات يعمل — السجلات: " + adapter.itemCount +
             " — دفع معلقة: " + pending +
             " — الاتصال: " + if (configured) "مُعد" else "غير مُعد"
@@ -106,17 +107,20 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 8, 32, 8)
         }
+
         val url = EditText(this).apply {
             hint = "عنوان السيرفر الأساسي"
-            singleLine = true
+            setSingleLine(true)
             setText(SecureConfig.getServerUrl(this@MainActivity))
         }
+
         val token = EditText(this).apply {
             hint = "Android Token"
-            singleLine = true
+            setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setText(SecureConfig.getToken(this@MainActivity))
         }
+
         box.addView(url)
         box.addView(token)
 
@@ -139,6 +143,7 @@ class NotificationAdapter(private val activity: AppCompatActivity) :
     RecyclerView.Adapter<NotificationAdapter.VH>() {
 
     private var items = NotificationStore.all(activity)
+
     fun refresh() {
         items = NotificationStore.all(activity)
         notifyDataSetChanged()
@@ -169,7 +174,9 @@ class NotificationAdapter(private val activity: AppCompatActivity) :
             append("الحالة: ").append(statusLabel(x.parseStatus)).append("\n")
             append("المزامنة: ").append(if (x.synced) "تم الإرسال للسيرفر" else "معلقة").append("\n")
             if (x.transactionType != "UNKNOWN") append("النوع: ").append(typeLabel(x.transactionType)).append("\n")
-            x.amount?.let { append("المبلغ: ").append(String.format(Locale.US, "%.2f", it)).append(" جنيه\n") }
+            x.amount?.let {
+                append("المبلغ: ").append(String.format(Locale.US, "%.2f", it)).append(" جنيه\n")
+            }
             if (x.reference.isNotBlank()) append("رقم العملية: ").append(x.reference).append("\n")
             if (x.senderPhone.isNotBlank()) append("رقم المحول: ").append(x.senderPhone).append("\n")
             if (x.recipientAccount.isNotBlank()) append("رقم المستلم: ").append(x.recipientAccount).append("\n")
@@ -178,9 +185,7 @@ class NotificationAdapter(private val activity: AppCompatActivity) :
             if (x.syncError.isNotBlank()) append("خطأ المزامنة: ").append(x.syncError).append("\n")
         } else ""
 
-        holder.view.text =
-            header + "\n" +
-            details +
+        holder.view.text = header + "\n" + details +
             "العنوان: " + x.title + "\n" +
             "النص الكامل:\n" + x.text + "\n" +
             "وقت استقبال الإشعار: " + time + "\n" +
@@ -197,11 +202,13 @@ class NotificationAdapter(private val activity: AppCompatActivity) :
         "INSTAPAY" -> "InstaPay"
         else -> provider.ifBlank { "غير معروف" }
     }
+
     private fun statusLabel(status: String): String = when (status) {
         "PARSED" -> "تم تحليل البيانات"
         "UNPARSED" -> "إشعار دفع غير مكتمل التحليل"
         else -> status.ifBlank { "غير معروف" }
     }
+
     private fun typeLabel(type: String): String = when (type) {
         "TRANSFER_IN" -> "تحويل وارد"
         "TRANSFER_OUT" -> "تحويل صادر"
