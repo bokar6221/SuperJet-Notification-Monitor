@@ -62,16 +62,17 @@ private object GenericPaymentParser {
         val amount = extractAmount(normalized)
         val type = detectType(normalized)
         val reference = extractReference(normalized)
+        val (date, time) = extractTransactionDateTime(normalized)
         val (senderPhone, recipientPhone) = extractLabeledPhones(normalized)
         val fallbackPhone = extractPhone(normalized)
         val resolvedRecipient = if (recipientPhone.isNotBlank()) {
             recipientPhone
-        } else if (type == "TRANSFER_OUT" && containsAny(normalized, "إلى", "الى", "to", "recipient", "المستلم", "لـ")) {
+        } else if (type == "TRANSFER_OUT" && (normalized.contains("إلى") || normalized.contains("الى") || normalized.contains("to", true) || normalized.contains("recipient", true) || normalized.contains("المستلم") || normalized.contains("لـ"))) {
             fallbackPhone
         } else ""
         val resolvedSender = if (senderPhone.isNotBlank()) {
             senderPhone
-        } else if (type == "TRANSFER_IN" && containsAny(normalized, "من", "from", "sender", "المرسل")) {
+        } else if (type == "TRANSFER_IN" && (normalized.contains("من") || normalized.contains("from", true) || normalized.contains("sender", true) || normalized.contains("المرسل"))) {
             fallbackPhone
         } else ""
         val status = if (amount != null && (reference.isNotBlank() || type != "UNKNOWN")) "PARSED" else "UNPARSED"
