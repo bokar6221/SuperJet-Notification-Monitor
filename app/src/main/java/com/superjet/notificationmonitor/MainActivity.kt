@@ -10,8 +10,12 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -19,6 +23,8 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
     private lateinit var adapter: NotificationAdapter
     private lateinit var status: TextView
+    private lateinit var syncButton: Button
+    private var manualSyncRunning = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,12 +56,9 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { showConnectionDialog() }
         }
 
-        val sync = Button(this).apply {
+        syncButton = Button(this).apply {
             text = "مزامنة عمليات الدفع الآن"
-            setOnClickListener {
-                NotificationSyncScheduler.enqueue(this@MainActivity)
-                status.text = "تم طلب المزامنة..."
-            }
+            setOnClickListener { runManualSync() }
         }
 
         val clear = Button(this).apply {
@@ -77,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(status)
         layout.addView(access)
         layout.addView(connection)
-        layout.addView(sync)
+        layout.addView(syncButton)
         layout.addView(clear)
         layout.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(layout)
@@ -101,6 +104,77 @@ class MainActivity : AppCompatActivity() {
             " — دفع معلقة: " + pending +
             " — الاتصال: " + if (configured) "مُعد" else "غير مُعد"
     }
+
+    private fun runManualSync() {
+        if (manualSyncRunning) return
+
+        manualSyncRunning = true
+        syncButton.isEnabled = false
+        status.text = "جاري مزامنة عمليات الدفع..."
+
+        // Cancel any old/retrying worker so a previous failed attempt cannot
+        // prevent this explicit manual sync from running.
+        NotificationSyncScheduler.cancel(this)
+
+        lifecycleScope.launch {
+            val summary = withContext(Dispatchers.IO) {
+                syncPendingDirect()
+            }
+
+            adapter.refresh()
+            manualSyncRunning = false
+            syncButton.isEnabled = true
+
+            status.text = when {
+                summary.total == 0 ->
+                    "لا توجد عمليات دفع معلقة للمزامنة."
+                summary.failed == 0 ->
+                    "تم إرسال ${summary.sent} عملية للسيرفر ✅"
+                summary.sent > 0 ->
+                    "تم إرسال ${summary.sent} عملية، وفشل ${summary.failed} ❌"
+                else ->
+                    "فشلت مزامنة ${summary.failed} عملية ❌" +
+                        if (summary.lastError.isNotBlank()) "\n" + summary.lastError else ""
+            }
+
+            if (NotificationStore.pending(this@MainActivity).isNotEmpty()) {
+                NotificationSyncScheduler.enqueue(this@MainActivity)
+            }
+        }
+    }
+
+    private fun syncPendingDirect(): SyncSummary {
+        val pending = NotificationStore.pending(this)
+        var sent = 0
+        var failed = 0
+        var lastError = ""
+
+        for (item in pending) {
+            val result = NotificationApi.syncOne(this, item)
+            if (result.ok) {
+                NotificationStore.markSynced(this, item.eventId)
+                sent++
+            } else {
+                NotificationStore.markSynced(this, item.eventId, result.error)
+                failed++
+                lastError = result.error
+            }
+        }
+
+        return SyncSummary(
+            total = pending.size,
+            sent = sent,
+            failed = failed,
+            lastError = lastError
+        )
+    }
+
+    private data class SyncSummary(
+        val total: Int,
+        val sent: Int,
+        val failed: Int,
+        val lastError: String
+    )
 
     private fun showConnectionDialog() {
         val box = LinearLayout(this).apply {
