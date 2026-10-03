@@ -40,7 +40,7 @@ class NotificationSyncWorker(
 }
 
 object NotificationSyncScheduler {
-    private const val UNIQUE_WORK = "superjet_payment_notification_sync"
+    const val UNIQUE_WORK = "superjet_payment_notification_sync"
 
     fun enqueue(context: android.content.Context) {
         val request = OneTimeWorkRequestBuilder<NotificationSyncWorker>()
@@ -53,8 +53,12 @@ object NotificationSyncScheduler {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             UNIQUE_WORK,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
             request
         )
+    }
+
+    fun cancel(context: android.content.Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK)
     }
 }
