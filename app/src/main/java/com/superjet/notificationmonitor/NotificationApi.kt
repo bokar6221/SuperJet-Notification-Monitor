@@ -11,6 +11,11 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+data class NotificationApiResult(
+    val ok: Boolean,
+    val error: String = ""
+)
+
 object NotificationApi {
     private const val ENDPOINT = "/payment/android-notification"
     private val RECEIVED_FORMAT = DateTimeFormatter.ofPattern(
@@ -18,16 +23,12 @@ object NotificationApi {
         Locale.US
     )
 
-    fun syncOne(context: Context, item: NotificationItem): Result {
+    fun syncOne(context: Context, item: NotificationItem): NotificationApiResult {
         val base = SecureConfig.getServerUrl(context).trimEnd('/')
         val token = SecureConfig.getToken(context)
 
-        if (base.isBlank()) return Result.failure(
-            IllegalStateException("SERVER_URL_NOT_CONFIGURED")
-        )
-        if (token.isBlank()) return Result.failure(
-            IllegalStateException("ANDROID_TOKEN_NOT_CONFIGURED")
-        )
+        if (base.isBlank()) return NotificationApiResult(false, "SERVER_URL_NOT_CONFIGURED")
+        if (token.isBlank()) return NotificationApiResult(false, "ANDROID_TOKEN_NOT_CONFIGURED")
 
         val connection = (URL(base + ENDPOINT).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -66,31 +67,27 @@ object NotificationApi {
         }
 
         return try {
-            connection.outputStream.use {
-                it.write(json.toString().toByteArray(Charsets.UTF_8))
+            connection.outputStream.use { output ->
+                output.write(json.toString().toByteArray(Charsets.UTF_8))
             }
 
             val code = connection.responseCode
-            val stream = if (code in 200..299) {
-                connection.inputStream
-            } else {
-                connection.errorStream
-            }
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val response = if (stream != null) {
                 BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
             } else {
                 ""
             }
-            connection.disconnect()
 
             if (code in 200..299) {
-                Result.success(response)
+                NotificationApiResult(true)
             } else {
-                Result.failure(IllegalStateException("HTTP_" + code + ":" + response))
+                NotificationApiResult(false, "HTTP_" + code + ":" + response)
             }
         } catch (e: Exception) {
+            NotificationApiResult(false, e.javaClass.simpleName + ":" + (e.message ?: "network error"))
+        } finally {
             connection.disconnect()
-            Result.failure(e)
         }
     }
 }
