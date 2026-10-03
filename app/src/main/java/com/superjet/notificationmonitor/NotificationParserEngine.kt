@@ -28,26 +28,21 @@ object NotificationParserEngine {
     )
 
     fun parse(appName: String, packageName: String, title: String, body: String): ParsedNotification {
-        val paymentLike = isPaymentLike(appName, packageName, title, body)
         val parser = parsers.firstOrNull { it.supports(appName, packageName, title, body) }
-
         return when {
             parser != null -> parser.parse(appName, packageName, title, body)
-            paymentLike -> GenericPaymentParser.parse(appName, packageName, title, body)
+            isPaymentLike(appName, packageName, title, body) ->
+                GenericPaymentParser.parse(appName, packageName, title, body)
             else -> ParsedNotification(status = "NOT_PAYMENT", isPaymentNotification = false)
         }
     }
 
     private fun isPaymentLike(appName: String, packageName: String, title: String, body: String): Boolean {
-        val s = listOf(appName, packageName, title, body)
-            .joinToString(" ")
-            .lowercase(Locale.ROOT)
-
+        val s = listOf(appName, packageName, title, body).joinToString(" ").lowercase(Locale.ROOT)
         val keywords = listOf(
-            "transfer", "transferred", "received", "payment", "cash",
-            "instapay", "vodafone", "orange", "etisalat", "we pay",
-            "تحويل", "تم استلام", "استلمت", "محفظة", "مبلغ",
-            "عملية", "دفع", "إيداع", "خصم"
+            "transfer", "transferred", "received", "payment", "cash", "money transfer",
+            "instapay", "vodafone", "vf-cash", "orange", "etisalat", "we pay",
+            "تحويل", "تم استلام", "استلمت", "محفظة", "مبلغ", "عملية", "دفع", "إيداع", "خصم"
         )
         return keywords.any { s.contains(it) }
     }
@@ -57,32 +52,46 @@ private object GenericPaymentParser {
     fun parse(appName: String, packageName: String, title: String, body: String): ParsedNotification {
         val normalized = normalizeDigits("$title\n$body")
         val amount = extractAmount(normalized)
-        val reference = extractReference(normalized)
         val phone = extractPhone(normalized)
         val type = detectType(normalized)
+        val reference = extractReference(normalized)
 
-        val hasUseful = amount != null || reference.isNotBlank() || phone.isNotBlank()
-        return ParsedNotification(
-            provider = appName.ifBlank { "UNKNOWN" },
-            transactionType = type,
-            amount = amount,
-            reference = reference,
-            senderPhone = phone,
-            status = if (hasUseful) "PARSED" else "UNPARSED",
-            isPaymentNotification = true
-        )
+        return if (type == "TRANSFER_OUT") {
+            ParsedNotification(
+                provider = appName.ifBlank { "UNKNOWN" },
+                transactionType = type,
+                amount = amount,
+                reference = reference,
+                recipientAccount = phone,
+                status = statusFor(amount, reference, phone),
+                isPaymentNotification = true
+            )
+        } else {
+            ParsedNotification(
+                provider = appName.ifBlank { "UNKNOWN" },
+                transactionType = type,
+                amount = amount,
+                reference = reference,
+                senderPhone = phone,
+                status = statusFor(amount, reference, phone),
+                isPaymentNotification = true
+            )
+        }
     }
+
+    private fun statusFor(amount: Double?, reference: String, phone: String): String =
+        if (amount != null || reference.isNotBlank() || phone.isNotBlank()) "PARSED" else "UNPARSED"
 
     private fun extractAmount(s: String): Double? {
         val patterns = listOf(
-            """(?i)(?:amount|value|بقيمة|بمبلغ|المبلغ|مبلغ|رصيد)[^0-9٠-٩]{0,15}([0-9٠-٩][0-9٠-٩,]*(?:[.٫][0-9٠-٩]{1,2})?)""",
-            """([0-9٠-٩][0-9٠-٩,]*(?:[.٫][0-9٠-٩]{1,2})?)\s*(?:EGP|جنيه|ج\.م|جنية)"""
+            """(?i)(?:amount|value|بقيمة|بمبلغ|المبلغ|مبلغ|رصيد)[^0-9٠-٩]{0,20}([0-9٠-٩][0-9٠-٩,]*(?:[.٫][0-9٠-٩]{1,2})?)""",
+            """([0-9٠-٩][0-9٠-٩,]*(?:[.٫][0-9٠-٩]{1,2})?)\s*(?:EGP|جنيه|جنية|ج\.م)"""
         )
         for (p in patterns) {
-            val m = Regex(p).find(s) ?: continue
-            val raw = m.groupValues[1].replace(",", "").replace("٫", ".")
-            raw.toDoubleOrNull()?.let {
-                if (it in 0.01..1_000_000.0) return it
+            Regex(p).find(s)?.groupValues?.getOrNull(1)?.let { raw ->
+                raw.replace(",", "").replace("٫", ".").toDoubleOrNull()?.let {
+                    if (it in 0.01..1_000_000.0) return it
+                }
             }
         }
         return null
@@ -90,27 +99,30 @@ private object GenericPaymentParser {
 
     private fun extractReference(s: String): String {
         val pattern = """(?i)(?:reference|ref|transaction\s*id|reference\s*number|رقم\s*المرجع|مرجع|رقم\s*العملية)[^0-9٠-٩]{0,20}([0-9٠-٩]{6,30})"""
-        Regex(pattern).find(s)?.groupValues?.getOrNull(1)?.let {
-            return normalizeDigits(it)
-        }
-        return ""
+        return Regex(pattern).find(s)?.groupValues?.getOrNull(1)?.let(::normalizeDigits).orEmpty()
     }
 
     private fun extractPhone(s: String): String {
         val pattern = """(?<![0-9٠-٩])(?:01|٠١)[0-9٠-٩]{9}(?![0-9٠-٩])"""
-        return Regex(pattern)
-            .findAll(s)
-            .map { normalizeDigits(it.value) }
-            .firstOrNull()
-            ?: ""
+        return Regex(pattern).findAll(s).map { normalizeDigits(it.value) }.firstOrNull().orEmpty()
     }
 
     private fun detectType(s: String): String {
+        val incoming = listOf(
+            "تم استلام", "تم استلام مبلغ", "استلمت", "تحويل وارد", "إيداع",
+            "received", "credited", "credit", "inbound"
+        )
+        val outgoing = listOf(
+            "تم تحويل", "تم خصم", "تحويل صادر", "خصم",
+            "sent", "debited", "debit", "outbound"
+        )
+
+        val incomingHit = incoming.any { s.contains(it, ignoreCase = true) }
+        val outgoingHit = outgoing.any { s.contains(it, ignoreCase = true) }
+
         return when {
-            Regex("""(?i)\b(received|credit|credited|inbound|تم\s+استلام|إيداع|تحويل\s+وارد)\b""")
-                .containsMatchIn(s) -> "TRANSFER_IN"
-            Regex("""(?i)\b(sent|debit|debited|outbound|خصم|تحويل\s+صادر)\b""")
-                .containsMatchIn(s) -> "TRANSFER_OUT"
+            outgoingHit -> "TRANSFER_OUT"
+            incomingHit -> "TRANSFER_IN"
             else -> "UNKNOWN"
         }
     }
@@ -132,11 +144,10 @@ private object GenericPaymentParser {
 
 private object VodafoneCashParser : NotificationParser {
     override fun supports(appName: String, packageName: String, title: String, body: String) =
-        "$appName $packageName $title $body".containsAny("vodafone", "فودافون")
+        "$appName $packageName $title $body".containsAny("vodafone", "vf-cash", "فودافون")
 
     override fun parse(appName: String, packageName: String, title: String, body: String) =
-        GenericPaymentParser.parse(appName.ifBlank { "Vodafone Cash" }, packageName, title, body)
-            .copy(provider = "VODAFONE_CASH")
+        GenericPaymentParser.parse("VF-Cash", packageName, title, body).copy(provider = "VODAFONE_CASH")
 }
 
 private object OrangeCashParser : NotificationParser {
@@ -144,8 +155,7 @@ private object OrangeCashParser : NotificationParser {
         "$appName $packageName $title $body".containsAny("orange", "أورنج", "اورنج")
 
     override fun parse(appName: String, packageName: String, title: String, body: String) =
-        GenericPaymentParser.parse(appName.ifBlank { "Orange Cash" }, packageName, title, body)
-            .copy(provider = "ORANGE_CASH")
+        GenericPaymentParser.parse("Orange Cash", packageName, title, body).copy(provider = "ORANGE_CASH")
 }
 
 private object EtisalatCashParser : NotificationParser {
@@ -153,8 +163,7 @@ private object EtisalatCashParser : NotificationParser {
         "$appName $packageName $title $body".containsAny("etisalat", "اتصالات")
 
     override fun parse(appName: String, packageName: String, title: String, body: String) =
-        GenericPaymentParser.parse(appName.ifBlank { "Etisalat Cash" }, packageName, title, body)
-            .copy(provider = "ETISALAT_CASH")
+        GenericPaymentParser.parse("Etisalat Cash", packageName, title, body).copy(provider = "ETISALAT_CASH")
 }
 
 private object WePayParser : NotificationParser {
@@ -162,8 +171,7 @@ private object WePayParser : NotificationParser {
         "$appName $packageName $title $body".containsAny("we pay", "wepay", "وي باي", "وى باى")
 
     override fun parse(appName: String, packageName: String, title: String, body: String) =
-        GenericPaymentParser.parse(appName.ifBlank { "WE Pay" }, packageName, title, body)
-            .copy(provider = "WE_PAY")
+        GenericPaymentParser.parse("WE Pay", packageName, title, body).copy(provider = "WE_PAY")
 }
 
 private object InstaPayParser : NotificationParser {
@@ -171,8 +179,7 @@ private object InstaPayParser : NotificationParser {
         "$appName $packageName $title $body".containsAny("instapay", "انستا باي", "إنستا باي")
 
     override fun parse(appName: String, packageName: String, title: String, body: String) =
-        GenericPaymentParser.parse(appName.ifBlank { "InstaPay" }, packageName, title, body)
-            .copy(provider = "INSTAPAY")
+        GenericPaymentParser.parse("InstaPay", packageName, title, body).copy(provider = "INSTAPAY")
 }
 
 private fun String.containsAny(vararg values: String): Boolean {
