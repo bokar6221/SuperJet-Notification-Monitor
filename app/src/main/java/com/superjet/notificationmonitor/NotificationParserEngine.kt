@@ -25,7 +25,17 @@ object NotificationParserEngine {
         VodafoneCashParser, OrangeCashParser, EtisalatCashParser, WePayParser, InstaPayParser
     )
 
+    private val ignoredPackages = setOf(
+        "org.telegram.messenger",
+        "org.telegram.messenger.web",
+        "com.openai.chatgpt",
+        "com.elmujib.direct"
+    )
+
     fun parse(appName: String, packageName: String, title: String, body: String): ParsedNotification {
+        if (packageName in ignoredPackages) {
+            return ParsedNotification(status = "NOT_PAYMENT", isPaymentNotification = false)
+        }
         val parser = parsers.firstOrNull { it.supports(appName, packageName, title, body) }
         return when {
             parser != null -> parser.parse(appName, packageName, title, body)
@@ -39,9 +49,10 @@ object NotificationParserEngine {
         val keywords = listOf(
             "transfer", "transferred", "received", "payment", "cash", "money transfer",
             "instapay", "vodafone", "vf-cash", "orange", "etisalat", "we pay",
-            "تحويل", "تم استلام", "استلمت", "محفظة", "مبلغ", "عملية", "دفع", "إيداع", "خصم"
+            "تحويل", "تم استلام", "استلمت", "محفظة", "عملية", "إيداع", "خصم"
         )
-        return keywords.any { s.contains(it) }
+        return keywords.any { s.contains(it) } &&
+            GenericPaymentParser.looksLikeStructuredPayment(s)
     }
 }
 
@@ -49,27 +60,35 @@ private object GenericPaymentParser {
     fun parse(appName: String, packageName: String, title: String, body: String): ParsedNotification {
         val normalized = normalizeDigits("$title\n$body")
         val amount = extractAmount(normalized)
-        val phone = extractPhone(normalized)
         val type = detectType(normalized)
         val reference = extractReference(normalized)
-        val (date, time) = extractTransactionDateTime(normalized)
-        val status = if (amount != null || reference.isNotBlank() || phone.isNotBlank()) "PARSED" else "UNPARSED"
+        val (senderPhone, recipientPhone) = extractLabeledPhones(normalized)
+        val fallbackPhone = extractPhone(normalized)
+        val resolvedRecipient = if (recipientPhone.isNotBlank()) {
+            recipientPhone
+        } else if (type == "TRANSFER_OUT" && containsAny(normalized, "إلى", "الى", "to", "recipient", "المستلم", "لـ")) {
+            fallbackPhone
+        } else ""
+        val resolvedSender = if (senderPhone.isNotBlank()) {
+            senderPhone
+        } else if (type == "TRANSFER_IN" && containsAny(normalized, "من", "from", "sender", "المرسل")) {
+            fallbackPhone
+        } else ""
+        val status = if (amount != null && (reference.isNotBlank() || type != "UNKNOWN")) "PARSED" else "UNPARSED"
+        val paymentLike = amount != null && (reference.isNotBlank() || type != "UNKNOWN")
 
-        return if (type == "TRANSFER_OUT") {
-            ParsedNotification(
-                provider = appName.ifBlank { "UNKNOWN" }, transactionType = type, amount = amount,
-                reference = reference, recipientAccount = phone,
-                transactionDate = date, transactionTime = time, status = status,
-                isPaymentNotification = true
-            )
-        } else {
-            ParsedNotification(
-                provider = appName.ifBlank { "UNKNOWN" }, transactionType = type, amount = amount,
-                reference = reference, senderPhone = phone,
-                transactionDate = date, transactionTime = time, status = status,
-                isPaymentNotification = true
-            )
-        }
+        return ParsedNotification(
+            provider = appName.ifBlank { "UNKNOWN" },
+            transactionType = type,
+            amount = amount,
+            reference = reference,
+            senderPhone = resolvedSender,
+            recipientAccount = resolvedRecipient,
+            transactionDate = date,
+            transactionTime = time,
+            status = status,
+            isPaymentNotification = paymentLike
+        )
     }
 
     private fun extractAmount(s: String): Double? {
@@ -95,6 +114,35 @@ private object GenericPaymentParser {
         return Regex(p).findAll(s).map { normalizeDigits(it.value) }.firstOrNull().orEmpty()
     }
 
+    private fun extractLabeledPhones(s: String): Pair<String, String> {
+        val phone = """(?:\+?20\s*)?(?:01|٠١)[0-9٠-٩]{9}"""
+        val senderPatterns = listOf(
+            Regex("""(?i)(?:رقم\s*المرسل|المرسل|من|sender|from)[^0-9٠-٩]{0,20}($phone)"""),
+            Regex("""(?i)($phone)[^0-9٠-٩]{0,20}(?:المرسل|sender)""")
+        )
+        val recipientPatterns = listOf(
+            Regex("""(?i)(?:رقم\s*المستلم|المستلم|إلى|الى|recipient|to)[^0-9٠-٩]{0,20}($phone)"""),
+            Regex("""(?i)($phone)[^0-9٠-٩]{0,20}(?:المستلم|recipient)""")
+        )
+        val sender = senderPatterns.asSequence().mapNotNull { r -> r.find(s)?.groupValues?.getOrNull(1) }
+            .map(::normalizeDigits).firstOrNull().orEmpty()
+        val recipient = recipientPatterns.asSequence().mapNotNull { r -> r.find(s)?.groupValues?.getOrNull(1) }
+            .map(::normalizeDigits).firstOrNull().orEmpty()
+        return sender to recipient
+    }
+
+    internal fun looksLikeStructuredPayment(s: String): Boolean {
+        val typeWords = listOf(
+            "تم تحويل", "تحويل صادر", "تحويل وارد", "تم استلام", "استلمت", "إيداع", "خصم",
+            "transferred", "transfer", "received", "credited", "debited", "credit", "debit"
+        )
+        val referenceLike = listOf(
+            "reference", "ref", "transaction", "transaction id", "رقم العملية", "رقم التحويل", "المرجع"
+        )
+        return typeWords.any { s.contains(it, ignoreCase = true) } ||
+            referenceLike.any { s.contains(it, ignoreCase = true) }
+    }
+
     private fun extractTransactionDateTime(s: String): Pair<String, String> {
         val patterns = listOf(
             """(?i)(?:تاريخ\s*العملية|transaction\s*date|date)[^0-9٠-٩]{0,10}([0-9٠-٩]{1,2}[-/][0-9٠-٩]{1,2}[-/][0-9٠-٩]{2,4})\s+([0-9٠-٩]{1,2}:[0-9٠-٩]{2}(?::[0-9٠-٩]{2})?)""",
@@ -109,7 +157,7 @@ private object GenericPaymentParser {
 
     private fun detectType(s: String): String {
         val incoming = listOf("تم استلام", "استلمت", "تحويل وارد", "إيداع", "received", "credited", "credit", "inbound")
-        val outgoing = listOf("تم تحويل", "تم خصم", "تحويل صادر", "خصم", "sent", "debited", "debit", "outbound")
+        val outgoing = listOf("تم تحويل", "تحويل صادر", "sent", "debited", "debit", "outbound")
         val incomingHit = incoming.any { s.contains(it, ignoreCase = true) }
         val outgoingHit = outgoing.any { s.contains(it, ignoreCase = true) }
         return when {
