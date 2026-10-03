@@ -1,7 +1,6 @@
 package com.superjet.notificationmonitor
 
 import java.util.Locale
-import kotlin.math.abs
 
 data class ParsedNotification(
     val provider: String = "UNKNOWN",
@@ -35,10 +34,7 @@ object NotificationParserEngine {
         return when {
             parser != null -> parser.parse(appName, packageName, title, body)
             paymentLike -> GenericPaymentParser.parse(appName, packageName, title, body)
-            else -> ParsedNotification(
-                status = "NOT_PAYMENT",
-                isPaymentNotification = false
-            )
+            else -> ParsedNotification(status = "NOT_PAYMENT", isPaymentNotification = false)
         }
     }
 
@@ -79,8 +75,8 @@ private object GenericPaymentParser {
 
     private fun extractAmount(s: String): Double? {
         val patterns = listOf(
-            "(?i)(?:amount|value|بقيمة|بمبلغ|المبلغ|مبلغ|رصيد)[^0-9٠-٩]{0,15}([0-9٠-٩][0-9٠-٩,]*(?:[.٫][0-9٠-٩]{1,2})?)",
-            "([0-9٠-٩][0-9٠-٩,]*(?:[.٫][0-9٠-٩]{1,2})?)\s*(?:EGP|جنيه|ج\.م|جنية)"
+            """(?i)(?:amount|value|بقيمة|بمبلغ|المبلغ|مبلغ|رصيد)[^0-9٠-٩]{0,15}([0-9٠-٩][0-9٠-٩,]*(?:[.٫][0-9٠-٩]{1,2})?)""",
+            """([0-9٠-٩][0-9٠-٩,]*(?:[.٫][0-9٠-٩]{1,2})?)\s*(?:EGP|جنيه|ج\.م|جنية)"""
         )
         for (p in patterns) {
             val m = Regex(p).find(s) ?: continue
@@ -93,31 +89,28 @@ private object GenericPaymentParser {
     }
 
     private fun extractReference(s: String): String {
-        val p = listOf(
-            "(?i)(?:reference|ref|transaction\s*id|reference\s*number|رقم\s*المرجع|مرجع|رقم\s*العملية)[^0-9٠-٩]{0,20}([0-9٠-٩]{6,30})"
-        )
-        for (pattern in p) {
-            Regex(pattern).find(s)?.groupValues?.getOrNull(1)?.let {
-                return normalizeDigits(it)
-            }
+        val pattern = """(?i)(?:reference|ref|transaction\s*id|reference\s*number|رقم\s*المرجع|مرجع|رقم\s*العملية)[^0-9٠-٩]{0,20}([0-9٠-٩]{6,30})"""
+        Regex(pattern).find(s)?.groupValues?.getOrNull(1)?.let {
+            return normalizeDigits(it)
         }
         return ""
     }
 
     private fun extractPhone(s: String): String {
-        val candidates = Regex("(?<![0-9٠-٩])(?:01|٠١)[0-9٠-٩]{9}(?![0-9٠-٩])")
+        val pattern = """(?<![0-9٠-٩])(?:01|٠١)[0-9٠-٩]{9}(?![0-9٠-٩])"""
+        return Regex(pattern)
             .findAll(s)
             .map { normalizeDigits(it.value) }
-            .toList()
-        return candidates.firstOrNull() ?: ""
+            .firstOrNull()
+            ?: ""
     }
 
     private fun detectType(s: String): String {
         return when {
-            Regex("(?i)\b(received|credit|credited|inbound|تم\s+استلام|إيداع|تحويل\s+وارد)\b").containsMatchIn(s) ->
-                "TRANSFER_IN"
-            Regex("(?i)\b(sent|debit|debited|outbound|خصم|تحويل\s+صادر)\b").containsMatchIn(s) ->
-                "TRANSFER_OUT"
+            Regex("""(?i)\b(received|credit|credited|inbound|تم\s+استلام|إيداع|تحويل\s+وارد)\b""")
+                .containsMatchIn(s) -> "TRANSFER_IN"
+            Regex("""(?i)\b(sent|debit|debited|outbound|خصم|تحويل\s+صادر)\b""")
+                .containsMatchIn(s) -> "TRANSFER_OUT"
             else -> "UNKNOWN"
         }
     }
@@ -134,10 +127,6 @@ private object GenericPaymentParser {
                 }
             }
         }
-    }
-
-    private fun extractProviderNumber(s: String): String {
-        return Regex("(?<![0-9])\d{8,20}(?![0-9])").find(s)?.value.orEmpty()
     }
 }
 
