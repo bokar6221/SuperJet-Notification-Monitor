@@ -21,52 +21,47 @@ class NotificationReaderService : NotificationListenerService() {
             text.isNotBlank() -> text
             else -> ""
         }
-
         if (title.isBlank() && body.isBlank()) return
 
-        val pm = packageManager
-        val appName = try {
-            pm.getApplicationLabel(pm.getApplicationInfo(sbn.packageName, 0)).toString()
-        } catch (_: Exception) {
-            sbn.packageName
-        }
+        val appName = runCatching {
+            packageManager.getApplicationLabel(
+                packageManager.getApplicationInfo(sbn.packageName, 0)
+            ).toString()
+        }.getOrDefault(sbn.packageName)
 
         val eventId = sha256(
-            listOf(
-                sbn.key,
-                sbn.postTime.toString(),
-                sbn.packageName,
-                title,
-                body
-            ).joinToString("|")
+            listOf(sbn.key, sbn.postTime.toString(), sbn.packageName, title, body)
+                .joinToString("|")
         )
 
         val parsed = NotificationParserEngine.parse(
-            appName = appName,
-            packageName = sbn.packageName,
-            title = title,
-            body = body
+            appName, sbn.packageName, title, body
         )
 
-        NotificationStore.add(
-            this,
-            NotificationItem(
-                eventId = eventId,
-                app = appName,
-                packageName = sbn.packageName,
-                title = title,
-                text = body,
-                time = sbn.postTime,
-                provider = parsed.provider,
-                transactionType = parsed.transactionType,
-                amount = parsed.amount,
-                reference = parsed.reference,
-                senderPhone = parsed.senderPhone,
-                recipientAccount = parsed.recipientAccount,
-                parseStatus = parsed.status,
-                isPaymentNotification = parsed.isPaymentNotification
-            )
+        val added = NotificationItem(
+            eventId = eventId,
+            app = appName,
+            packageName = sbn.packageName,
+            title = title,
+            text = body,
+            time = sbn.postTime,
+            provider = parsed.provider,
+            transactionType = parsed.transactionType,
+            amount = parsed.amount,
+            reference = parsed.reference,
+            senderPhone = parsed.senderPhone,
+            recipientAccount = parsed.recipientAccount,
+            transactionDate = parsed.transactionDate,
+            transactionTime = parsed.transactionTime,
+            parseStatus = parsed.status,
+            isPaymentNotification = parsed.isPaymentNotification
         )
+
+        NotificationStore.add(this, added)
+
+        if (added.isPaymentNotification) {
+            NotificationSyncScheduler.enqueue(this)
+        }
     }
 
     private fun sha256(value: String): String {
