@@ -21,15 +21,15 @@ class NotificationSyncWorker(
 
         for (item in pending) {
             val result = NotificationApi.syncOne(applicationContext, item)
-            if (result.isSuccess) {
+
+            if (result.ok) {
                 NotificationStore.markSynced(applicationContext, item.eventId)
             } else {
-                val error = result.exceptionOrNull()?.message ?: "SYNC_FAILED"
-                NotificationStore.markSynced(applicationContext, item.eventId, error)
+                NotificationStore.markSynced(applicationContext, item.eventId, result.error)
 
-                val permanent = error.startsWith("HTTP_403") ||
-                    error.contains("SERVER_URL_NOT_CONFIGURED") ||
-                    error.contains("ANDROID_TOKEN_NOT_CONFIGURED")
+                val permanent = result.error.startsWith("HTTP_403") ||
+                    result.error.contains("SERVER_URL_NOT_CONFIGURED") ||
+                    result.error.contains("ANDROID_TOKEN_NOT_CONFIGURED")
 
                 if (!permanent) retry = true
             }
