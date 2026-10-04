@@ -129,7 +129,7 @@ class MainActivityPro : AppCompatActivity() {
         val page=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(16),dp(16),dp(24))}
         scroll.addView(page)
 
-        val header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;layoutDirection=View.LAYOUT_DIRECTION.LTR}
+        val header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         val logo=ImageView(this).apply{setImageResource(R.drawable.superjet_logo);scaleType=ImageView.ScaleType.CENTER_INSIDE}
         header.addView(logo,lp(54,54).apply{marginEnd=dp(10)})
         val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;}
