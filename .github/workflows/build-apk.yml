@@ -1,8 +1,12 @@
-name: Build SuperJet Notification Monitor APK
+name: Build SuperJet Staff v2
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+      - release/v2.0-integrated-staff
+  pull_request:
     branches:
       - main
 
@@ -23,17 +27,17 @@ jobs:
       - name: Prepare Android SDK
         shell: bash
         run: |
-          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-
-          if [ ! -f "$SDKMANAGER" ]; then
-            echo "sdkmanager not found at $SDKMANAGER"
-            find "${ANDROID_HOME}" -name sdkmanager -type f 2>/dev/null | head -20
+          SDKMANAGER="\${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -f "\$SDKMANAGER" ]; then
+            echo "sdkmanager not found at \$SDKMANAGER"
+            find "\${ANDROID_HOME}" -name sdkmanager -type f 2>/dev/null | head -20
             exit 1
           fi
-
-          yes | "$SDKMANAGER" --licenses || true
-
-          "$SDKMANAGER"             "platform-tools"             "platforms;android-35"             "build-tools;35.0.0"
+          yes | "\$SDKMANAGER" --licenses || true
+          "\$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -45,16 +49,21 @@ jobs:
 
       - name: Rename APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Notification_Monitor_v1.5.apk
+          cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v2.0.apk
 
       - name: Create source ZIP
         run: |
-          zip -r SuperJet_Notification_Monitor_v1.5_SOURCE.zip .             -x ".git/*"             -x "app/build/*"             -x ".gradle/*"
+          zip -r SuperJet_Staff_v2.0_SOURCE.zip . \
+            -x ".git/*" \
+            -x "app/build/*" \
+            -x ".gradle/*" \
+            -x "SuperJet_Staff_v2.0.apk" \
+            -x "SuperJet_Staff_v2.0_SOURCE.zip"
 
       - name: Upload release files
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Notification_Monitor_v1.5
+          name: SuperJet_Staff_v2.0
           path: |
-            SuperJet_Notification_Monitor_v1.5.apk
-            SuperJet_Notification_Monitor_v1.5_SOURCE.zip
+            SuperJet_Staff_v2.0.apk
+            SuperJet_Staff_v2.0_SOURCE.zip
