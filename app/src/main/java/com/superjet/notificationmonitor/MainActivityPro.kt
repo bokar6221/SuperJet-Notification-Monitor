@@ -68,7 +68,7 @@ class MainActivityPro : AppCompatActivity() {
 
     private fun showLogin(){
         reset()
-        val scroll=ScrollView(this).apply{fillViewport=true}
+        val scroll=ScrollView(this).apply{isFillViewport=true}
         val page=LinearLayout(this).apply{
             orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER_HORIZONTAL
             setPadding(dp(22),dp(28),dp(22),dp(28))
@@ -86,18 +86,14 @@ class MainActivityPro : AppCompatActivity() {
         form.addView(txt("تسجيل دخول الموظف",19f,TEXT,true),match().apply{bottomMargin=dp(17)})
 
         val ul=TextInputLayout(this).apply{
-            hint="اسم المستخدم";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE
-            boxCornerRadiusTopStart=dp(16).toFloat();boxCornerRadiusTopEnd=dp(16).toFloat()
-            boxCornerRadiusBottomStart=dp(16).toFloat();boxCornerRadiusBottomEnd=dp(16).toFloat()
+            hint="اسم المستخدم";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE;boxCornerRadiusTopEnd=dp(16).toFloat();boxCornerRadiusBottomEnd=dp(16).toFloat()
         }
         userBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT}
         ul.addView(userBox);form.addView(ul,match().apply{bottomMargin=dp(13)})
 
         val pl=TextInputLayout(this).apply{
             hint="كلمة المرور";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE
-            endIconMode=TextInputLayout.END_ICON_PASSWORD_TOGGLE
-            boxCornerRadiusTopStart=dp(16).toFloat();boxCornerRadiusTopEnd=dp(16).toFloat()
-            boxCornerRadiusBottomStart=dp(16).toFloat();boxCornerRadiusBottomEnd=dp(16).toFloat()
+            endIconMode=TextInputLayout.END_ICON_PASSWORD_TOGGLE;boxCornerRadiusTopEnd=dp(16).toFloat();boxCornerRadiusBottomEnd=dp(16).toFloat()
         }
         passBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD}
         pl.addView(passBox);form.addView(pl,match().apply{bottomMargin=dp(18)})
@@ -129,14 +125,14 @@ class MainActivityPro : AppCompatActivity() {
 
     private fun showDashboard(){
         reset()
-        val scroll=ScrollView(this).apply{fillViewport=true}
+        val scroll=ScrollView(this).apply{isFillViewport=true}
         val page=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(16),dp(16),dp(24))}
         scroll.addView(page)
 
         val header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;layoutDirection=View.LAYOUT_DIRECTION.LTR}
         val logo=ImageView(this).apply{setImageResource(R.drawable.superjet_logo);scaleType=ImageView.ScaleType.CENTER_INSIDE}
         header.addView(logo,lp(54,54).apply{marginEnd=dp(10)})
-        val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;layoutDirection=View.LAYOUT_DIRECTION_RTL}
+        val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;}
         h.addView(txt("SuperJet Staff",23f,TEXT,true),match())
         status=txt("جارٍ تحميل بيانات الموظف...",12f,MUTED,false);h.addView(status,match().apply{topMargin=dp(2)})
         header.addView(h,LinearLayout.LayoutParams(0,-2,1f))
@@ -169,7 +165,7 @@ class MainActivityPro : AppCompatActivity() {
 
         page.addView(txt("ملخص اليوم",18f,TEXT,true),match().apply{bottomMargin=dp(8)})
         val stats=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        val s1=stat("العمليات","0",BLUE).also{statOps=it};val s2=stat("الإجمالي","0.00",GOLD).also{statAmount=it};val s3=stat("الإشعارات","0",GREEN).also{statNotif=it}
+        val s1=stat("العمليات","0",BLUE).also{statOps=it.findViewWithTag<TextView>("stat_value")};val s2=stat("الإجمالي","0.00",GOLD).also{statAmount=it.findViewWithTag<TextView>("stat_value")};val s3=stat("الإشعارات","0",GREEN).also{statNotif=it.findViewWithTag<TextView>("stat_value")}
         stats.addView(s1,weightCard());stats.addView(s2,weightCard().apply{marginStart=dp(8)});stats.addView(s3,weightCard().apply{marginStart=dp(8)})
         page.addView(stats,match().apply{bottomMargin=dp(18)})
 
@@ -286,9 +282,12 @@ class MainActivityPro : AppCompatActivity() {
     private fun card(bg:String,r:Float)=MaterialCardView(this).apply{radius=dp(r.toInt()).toFloat();cardElevation=dp(3).toFloat();setCardBackgroundColor(Color.parseColor(bg));strokeWidth=dp(1);strokeColor=Color.parseColor(STROKE)}
     private fun pill(s:String,color:String)=txt(s,10.5f,color,true).apply{background=android.graphics.drawable.GradientDrawable().apply{setColor(Color.parseColor("#18232E"));cornerRadius=dp(10).toFloat()};setPadding(dp(8),dp(5),dp(8),dp(5))}
     private fun button(s:String,bg:String,dark:Boolean)=MaterialButton(this).apply{text=s;textSize=12.5f;isAllCaps=false;cornerRadius=dp(15);insetTop=0;insetBottom=0;minHeight=dp(50);backgroundTintList=android.content.res.ColorStateList.valueOf(Color.parseColor(bg));setTextColor(Color.parseColor(if(dark)NAVY else TEXT))}
-    private fun stat(t:String,v:String,color:String)=MaterialCardView(this).apply{
-        radius=dp(16).toFloat();cardElevation=dp(2).toFloat();setCardBackgroundColor(Color.parseColor(SURFACE));strokeWidth=dp(1);strokeColor=Color.parseColor(STROKE)
-        addView(LinearLayout(this@MainActivityPro).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(10),dp(10),dp(10));addView(txt(t,10.5f,MUTED,true),match());addView(txt(v,19f,color,true),match().apply{topMargin=dp(5)})})
+    private fun stat(t:String,v:String,color:String):MaterialCardView {
+        val c=MaterialCardView(this).apply{radius=dp(16).toFloat();cardElevation=dp(2).toFloat();setCardBackgroundColor(Color.parseColor(SURFACE));strokeWidth=dp(1);strokeColor=Color.parseColor(STROKE)}
+        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(10),dp(10),dp(10))}
+        b.addView(txt(t,10.5f,MUTED,true),match())
+        val value=txt(v,19f,color,true);value.tag="stat_value";b.addView(value,match().apply{topMargin=dp(5)})
+        c.addView(b);return c
     }
     private fun empty(s:String)=card(SURFACE,17f).apply{addView(txt(s,12f,MUTED,false).apply{gravity=Gravity.CENTER;setPadding(dp(12),dp(18),dp(12),dp(18))})}
     private fun match()=LinearLayout.LayoutParams(-1,-2);private fun wrap()=LinearLayout.LayoutParams(-2,-2)
