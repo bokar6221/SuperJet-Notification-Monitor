@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -23,7 +24,8 @@ import org.json.JSONArray
 
 class ChatNotificationService : Service() {
     companion object {
-        private const val CHANNEL = "superjet_staff_chat"
+        private const val CHAT_CHANNEL = "superjet_staff_chat_v2"
+        private const val SERVICE_CHANNEL = "superjet_staff_service"
         private const val SERVICE_ID = 3011
         private const val PREFS = "superjet_chat_state"
         private const val LAST_ID = "last_chat_id"
@@ -34,7 +36,7 @@ class ChatNotificationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createChannel()
+        createChannels()
         val n = serviceNotification()
         if (Build.VERSION.SDK_INT >= 34) {
             ServiceCompat.startForeground(
@@ -89,7 +91,7 @@ class ChatNotificationService : Service() {
                     break
                 }
             } catch (_: Throwable) {
-                // Network failure: keep the service alive and retry.
+                // Network failure: keep service alive and retry.
             }
             delay(1000)
         }
@@ -115,7 +117,7 @@ class ChatNotificationService : Service() {
             if (message.isNotBlank()) append(": $message")
         }
 
-        val n = NotificationCompat.Builder(this, CHANNEL)
+        val n = NotificationCompat.Builder(this, CHAT_CHANNEL)
             .setSmallIcon(R.drawable.superjet_logo)
             .setContentTitle("SuperJet • رسالة عميل جديدة")
             .setContentText(text)
@@ -124,13 +126,15 @@ class ChatNotificationService : Service() {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setDefaults(Notification.DEFAULT_ALL)
+            .setVibrate(longArrayOf(0, 200, 120, 320))
             .build()
 
         manager.notify(10000 + requestCode % 100000, n)
     }
 
     private fun serviceNotification(): Notification =
-        NotificationCompat.Builder(this, CHANNEL)
+        NotificationCompat.Builder(this, SERVICE_CHANNEL)
             .setSmallIcon(R.drawable.superjet_logo)
             .setContentTitle("SuperJet Staff")
             .setContentText("مراقبة رسائل العملاء وإشعارات الدفع")
@@ -138,17 +142,40 @@ class ChatNotificationService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL,
-                    "SuperJet Staff",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
-            )
-        }
+    private fun createChannels() {
+        if (Build.VERSION.SDK_INT < 26) return
+        val manager = getSystemService(NotificationManager::class.java)
+        val audio = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHAT_CHANNEL,
+                "SuperJet — رسائل العملاء",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "تنبيه برسالة جديدة من العميل"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 200, 120, 320)
+                setSound(audio, attrs)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(
+                SERVICE_CHANNEL,
+                "SuperJet — خدمة المراقبة",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "خدمة الخلفية الخاصة بمراقبة الرسائل"
+                setSound(null, null)
+                enableVibration(false)
+            }
+        )
     }
 
     override fun onDestroy() {
