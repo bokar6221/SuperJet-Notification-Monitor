@@ -357,6 +357,7 @@ private object StaffClient{
     fun chat(c:Context,operationId:String)=req(c,"GET","/api/mobile/operations/"+operationId+"/chat",null,true)
     fun sendChat(c:Context,operationId:String,message:String)=req(c,"POST","/api/mobile/operations/"+operationId+"/chat",JSONObject().put("message",message).toString(),true)
     fun search(c:Context,q:String)=req(c,"GET","/api/mobile/search?q="+java.net.URLEncoder.encode(q,"UTF-8"),null,true)
+    fun pollChatNotifications(c:Context,sinceId:Long)=req(c,"GET","/api/mobile/chat/notifications?since_id="+sinceId+"&wait=20",null,true)
     private fun req(c:Context,method:String,path:String,body:String?,auth:Boolean):StaffResult{
         val base=SecureConfig.getServerUrl(c).trimEnd('/')
         if(base.isBlank())return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
