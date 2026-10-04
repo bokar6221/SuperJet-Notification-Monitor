@@ -16,25 +16,22 @@ class NotificationSyncWorker(
     override suspend fun doWork(): Result {
         val pending = NotificationStore.pending(applicationContext)
         if (pending.isEmpty()) return Result.success()
+        if (SecureConfig.getToken(applicationContext).isBlank()) return Result.success()
 
         var retry = false
-
         for (item in pending) {
             val result = NotificationApi.syncOne(applicationContext, item)
-
             if (result.ok) {
                 NotificationStore.markSynced(applicationContext, item.eventId)
             } else {
                 NotificationStore.markSynced(applicationContext, item.eventId, result.error)
-
-                val permanent = result.error.startsWith("HTTP_403") ||
-                    result.error.contains("SERVER_URL_NOT_CONFIGURED") ||
-                    result.error.contains("ANDROID_TOKEN_NOT_CONFIGURED")
-
-                if (!permanent) retry = true
+                if (!result.error.startsWith("HTTP_401") &&
+                    !result.error.startsWith("HTTP_403") &&
+                    !result.error.contains("LOGIN_REQUIRED")) {
+                    retry = true
+                }
             }
         }
-
         return if (retry) Result.retry() else Result.success()
     }
 }
@@ -43,6 +40,7 @@ object NotificationSyncScheduler {
     const val UNIQUE_WORK = "superjet_payment_notification_sync"
 
     fun enqueue(context: android.content.Context) {
+        if (SecureConfig.getToken(context).isBlank()) return
         val request = OneTimeWorkRequestBuilder<NotificationSyncWorker>()
             .setConstraints(
                 Constraints.Builder()
@@ -50,7 +48,6 @@ object NotificationSyncScheduler {
                     .build()
             )
             .build()
-
         WorkManager.getInstance(context).enqueueUniqueWork(
             UNIQUE_WORK,
             ExistingWorkPolicy.REPLACE,
