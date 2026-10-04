@@ -172,11 +172,22 @@ class MainActivity : AppCompatActivity() {
             }
             val employee = r.body.optJSONObject("employee") ?: JSONObject()
             val d = r.body.optJSONObject("dashboard") ?: JSONObject()
+            val byMethod = d.optJSONArray("by_method") ?: org.json.JSONArray()
+            var walletTotal = 0.0
+            var instaTotal = 0.0
+            for (i in 0 until byMethod.length()) {
+                val x = byMethod.optJSONObject(i) ?: continue
+                when (x.optString("payment_method")) {
+                    "محفظة إلكترونية" -> walletTotal = x.optDouble("total", 0.0)
+                    "إنستا باي" -> instaTotal = x.optDouble("total", 0.0)
+                }
+            }
             statusText?.text = employee.optString("name") + " • " +
                 (if (employee.optString("role") == "manager") "مدير" else "خدمة عملاء") +
                 " • " + employee.optString("status") +
-                "\nالعمليات: " + d.optJSONObject("today")?.optInt("operations", 0) +
-                " • إجمالي اليوم: " + d.optJSONObject("today")?.optDouble("total", 0.0)
+                "\nالعمليات اليوم: " + d.optJSONObject("today")?.optInt("operations", 0) +
+                " • إجمالي اليوم: " + d.optJSONObject("today")?.optDouble("total", 0.0) + " جنيه" +
+                "\nمحافظ: " + walletTotal + " • InstaPay: " + instaTotal + " جنيه"
             renderOperations(d.optJSONArray("operations") ?: JSONArray())
         }
     }
