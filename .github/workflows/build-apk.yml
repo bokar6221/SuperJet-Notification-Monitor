@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.1 PRO
+name: Build SuperJet Staff v3.2 FINAL PRO
 
 on:
   workflow_dispatch:
@@ -18,37 +18,25 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Prepare Android SDK
-        shell: bash
-        run: |
-          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -f "$SDKMANAGER" ]; then
-            echo "sdkmanager not found"
-            find "${ANDROID_HOME}" -name sdkmanager -type f | head -20
-            exit 1
-          fi
-          yes | "$SDKMANAGER" --licenses || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
 
-      - name: Build Debug APK
+      - name: Build APK
         run: gradle :app:assembleDebug --no-daemon
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.1_PRO.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.2_FINAL_PRO.apk
 
-      - name: Create source ZIP
+      - name: Package source
         run: |
-          zip -r SuperJet_Staff_v3.1_PRO_SOURCE.zip .             -x ".git/*"             -x "app/build/*"             -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.2_FINAL_PRO_SOURCE.zip .             -x ".git/*"             -x "app/build/*"             -x ".gradle/*"
 
-      - name: Upload APK and source
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v3.1_PRO
+          name: SuperJet_Staff_v3.2_FINAL_PRO
           path: |
-            SuperJet_Staff_v3.1_PRO.apk
-            SuperJet_Staff_v3.1_PRO_SOURCE.zip
+            SuperJet_Staff_v3.2_FINAL_PRO.apk
+            SuperJet_Staff_v3.2_FINAL_PRO_SOURCE.zip
