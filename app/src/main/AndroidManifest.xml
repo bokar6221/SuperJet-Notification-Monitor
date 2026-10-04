@@ -4,7 +4,7 @@
 
     <application
         android:theme="@style/Theme.SuperJetNotificationMonitor"
-        android:label="SuperJet Payment Monitor"
+        android:label="SuperJet Staff"
         android:allowBackup="false"
         android:supportsRtl="true">
         <activity
@@ -18,7 +18,7 @@
 
         <service
             android:name=".NotificationReaderService"
-            android:label="SuperJet Notification Reader"
+            android:label="SuperJet Payment Notification Reader"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
             <intent-filter>
