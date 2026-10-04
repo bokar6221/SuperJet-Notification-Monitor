@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v2.2 PRO APK
+name: Build SuperJet Staff v3.1 PRO
 
 on:
   workflow_dispatch:
@@ -39,16 +39,16 @@ jobs:
         run: gradle :app:assembleDebug --no-daemon
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v2.2_PRO.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.1_PRO.apk
 
       - name: Create source ZIP
         run: |
-          zip -r SuperJet_Staff_v2.2_PRO_SOURCE.zip .             -x ".git/*"             -x "app/build/*"             -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.1_PRO_SOURCE.zip .             -x ".git/*"             -x "app/build/*"             -x ".gradle/*"
 
       - name: Upload APK and source
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v2.2_PRO
+          name: SuperJet_Staff_v3.1_PRO
           path: |
-            SuperJet_Staff_v2.2_PRO.apk
-            SuperJet_Staff_v2.2_PRO_SOURCE.zip
+            SuperJet_Staff_v3.1_PRO.apk
+            SuperJet_Staff_v3.1_PRO_SOURCE.zip
