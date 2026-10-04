@@ -343,8 +343,8 @@ class MainActivityPro : AppCompatActivity() {
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
 }
 
-private data class StaffResult(val ok:Boolean,val body:JSONObject=JSONObject(),val error:String="")
-private object StaffClient{
+data class StaffResult(val ok:Boolean,val body:JSONObject=JSONObject(),val error:String="")
+object StaffClient{
     private const val C=10000;private const val R=20000
     fun deviceId(c:Context)=Settings.Secure.getString(c.contentResolver,Settings.Secure.ANDROID_ID)?.takeIf{it.isNotBlank()}?:UUID.nameUUIDFromBytes((c.packageName+android.os.Build.MODEL).toByteArray()).toString()
     fun login(c:Context,u:String,p:String):StaffResult{
