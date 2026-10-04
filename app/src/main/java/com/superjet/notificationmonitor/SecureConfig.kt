@@ -13,19 +13,14 @@ import javax.crypto.spec.GCMParameterSpec
 
 object SecureConfig {
     private const val PREFS = "superjet_secure_config"
-    private const val KEY_SERVER = "server_url"
-    private const val KEY_TOKEN = "android_token"
+    private const val KEY_TOKEN = "staff_session_token"
+    private const val KEY_EMPLOYEE_ID = "employee_id"
+    private const val KEY_EMPLOYEE_NAME = "employee_name"
+    private const val KEY_ROLE = "employee_role"
     private const val KEYSTORE = "AndroidKeyStore"
-    private const val KEY_ALIAS = "SuperJetNotificationToken"
+    private const val KEY_ALIAS = "SuperJetStaffSession"
 
-    fun setServerUrl(context: Context, value: String) {
-        context.getSharedPreferences(PREFS, 0).edit()
-            .putString(KEY_SERVER, value.trim().removeSuffix("/"))
-            .apply()
-    }
-
-    fun getServerUrl(context: Context): String =
-        context.getSharedPreferences(PREFS, 0).getString(KEY_SERVER, "") ?: ""
+    fun getServerUrl(): String = BuildConfig.SUPERJET_BASE_URL.trimEnd('/')
 
     fun setToken(context: Context, value: String) {
         context.getSharedPreferences(PREFS, 0).edit()
@@ -37,6 +32,27 @@ object SecureConfig {
         val stored = context.getSharedPreferences(PREFS, 0).getString(KEY_TOKEN, "") ?: ""
         if (stored.isBlank()) return ""
         return runCatching { decrypt(stored) }.getOrDefault("")
+    }
+
+    fun saveEmployee(context: Context, id: String, name: String, role: String) {
+        context.getSharedPreferences(PREFS, 0).edit()
+            .putString(KEY_EMPLOYEE_ID, id)
+            .putString(KEY_EMPLOYEE_NAME, name)
+            .putString(KEY_ROLE, role)
+            .apply()
+    }
+
+    fun employeeId(context: Context) = context.getSharedPreferences(PREFS, 0).getString(KEY_EMPLOYEE_ID, "") ?: ""
+    fun employeeName(context: Context) = context.getSharedPreferences(PREFS, 0).getString(KEY_EMPLOYEE_NAME, "") ?: ""
+    fun role(context: Context) = context.getSharedPreferences(PREFS, 0).getString(KEY_ROLE, "") ?: ""
+
+    fun clearSession(context: Context) {
+        context.getSharedPreferences(PREFS, 0).edit()
+            .remove(KEY_TOKEN)
+            .remove(KEY_EMPLOYEE_ID)
+            .remove(KEY_EMPLOYEE_NAME)
+            .remove(KEY_ROLE)
+            .apply()
     }
 
     private fun secretKey(): SecretKey {
@@ -68,11 +84,7 @@ object SecureConfig {
         val iv = raw.copyOfRange(0, 12)
         val data = raw.copyOfRange(12, raw.size)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(
-            Cipher.DECRYPT_MODE,
-            secretKey(),
-            GCMParameterSpec(128, iv)
-        )
+        cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
         return String(cipher.doFinal(data), StandardCharsets.UTF_8)
     }
 }
