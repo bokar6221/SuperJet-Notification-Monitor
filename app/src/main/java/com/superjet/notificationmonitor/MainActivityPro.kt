@@ -49,6 +49,7 @@ class MainActivityPro : AppCompatActivity() {
     private var statNotif: TextView?=null
     private var selectedOperation=""
     private var busy=false
+    private var chatServiceStarted=false
 
     override fun onCreate(savedInstanceState: Bundle?){
         super.onCreate(savedInstanceState)
@@ -56,7 +57,7 @@ class MainActivityPro : AppCompatActivity() {
         window.navigationBarColor=Color.parseColor(NAVY)
         root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))}
         setContentView(root)
-        if(SecureConfig.getToken(this).isBlank()) showLogin() else showDashboard()
+        if(SecureConfig.getToken(this).isBlank()) showLogin() else { showDashboard(); startChatService() }
     }
 
     override fun onResume(){
@@ -88,14 +89,14 @@ class MainActivityPro : AppCompatActivity() {
         val ul=TextInputLayout(this).apply{
             hint="اسم المستخدم";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE
         }
-        userBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT}
+        userBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT;setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED))}
         ul.addView(userBox);form.addView(ul,match().apply{bottomMargin=dp(13)})
 
         val pl=TextInputLayout(this).apply{
             hint="كلمة المرور";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE
             endIconMode=TextInputLayout.END_ICON_PASSWORD_TOGGLE
         }
-        passBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD}
+        passBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD;setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED))}
         pl.addView(passBox);form.addView(pl,match().apply{bottomMargin=dp(18)})
 
         val login=button("دخول آمن  ↪",GOLD,true)
@@ -119,7 +120,7 @@ class MainActivityPro : AppCompatActivity() {
         lifecycleScope.launch{
             val r=withContext(Dispatchers.IO){StaffClient.login(this@MainActivityPro,u,p)}
             btn.isEnabled=true
-            if(r.ok) showDashboard() else toast(r.error)
+            if(r.ok) { startChatService(); requestNotificationPermission(); showDashboard() } else toast(r.error)
         }
     }
 
@@ -138,7 +139,7 @@ class MainActivityPro : AppCompatActivity() {
         header.addView(h,LinearLayout.LayoutParams(0,-2,1f))
         val out=button("خروج",RED,false).apply{minHeight=dp(42)}
         header.addView(out,wrap().apply{marginStart=dp(8)})
-        out.setOnClickListener{SecureConfig.clearToken(this);showLogin()}
+        out.setOnClickListener{SecureConfig.clearToken(this);stopChatService();showLogin()}
         page.addView(header,match().apply{bottomMargin=dp(14)})
 
         val hero=card("#0F2435",20f);val hb=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(15),dp(16),dp(15))}
@@ -260,7 +261,7 @@ class MainActivityPro : AppCompatActivity() {
     }
 
     private fun reject(id:String){
-        val e=EditText(this).apply{hint="سبب الرفض";minLines=2}
+        val e=EditText(this).apply{hint="سبب الرفض";minLines=2;setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED))}
         AlertDialog.Builder(this).setTitle("رفض عملية الدفع").setView(e).setPositiveButton("رفض"){_,_->lifecycleScope.launch{
             val r=withContext(Dispatchers.IO){StaffClient.reject(this@MainActivityPro,id,e.text.toString().ifBlank{"رفض موظف"})}
             toast(if(r.ok)"تم رفض العملية." else r.error);if(r.ok)refresh()
@@ -268,7 +269,7 @@ class MainActivityPro : AppCompatActivity() {
     }
 
     private fun showSearchDialog(){
-        val input=EditText(this).apply{hint="كود الحجز أو الموبايل أو اسم العميل أو المرجع";isSingleLine=true;setTextColor(Color.WHITE);setHintTextColor(Color.parseColor(MUTED))}
+        val input=EditText(this).apply{hint="كود الحجز أو الموبايل أو اسم العميل أو المرجع";isSingleLine=true;setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED));setBackgroundColor(Color.parseColor(SURFACE2));setPadding(dp(14),dp(12),dp(14),dp(12))}
         AlertDialog.Builder(this).setTitle("بحث آمن داخل عمليات SuperJet").setView(input).setPositiveButton("بحث"){_,_->
             val q=input.text.toString().trim();if(q.isBlank())return@setPositiveButton
             lifecycleScope.launch{
@@ -293,7 +294,7 @@ class MainActivityPro : AppCompatActivity() {
         val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(6),dp(10),0)}
         val messages=TextView(this).apply{textSize=13f;setTextColor(Color.parseColor(TEXT));setPadding(dp(8),dp(8),dp(8),dp(8))}
         val scroll=ScrollView(this).apply{addView(messages);layoutParams=LinearLayout.LayoutParams(-1,dp(300))}
-        val input=EditText(this).apply{hint="اكتب رسالة للعميل...";setTextColor(Color.WHITE);setHintTextColor(Color.parseColor(MUTED))}
+        val input=EditText(this).apply{hint="اكتب رسالة للعميل...";setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED));setBackgroundColor(Color.parseColor(SURFACE2));setPadding(dp(14),dp(10),dp(14),dp(10))}
         val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(0,dp(10),0,0)}
         val send=button("إرسال",GOLD,true);row.addView(input,LinearLayout.LayoutParams(0,dp(52),1f));row.addView(send,LinearLayout.LayoutParams(dp(100),dp(52)).apply{marginStart=dp(8)})
         box.addView(scroll);box.addView(row)
@@ -302,6 +303,20 @@ class MainActivityPro : AppCompatActivity() {
         send.setOnClickListener{val msg=input.text.toString().trim();if(msg.isBlank())return@setOnClickListener;send.isEnabled=false;lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.sendChat(this@MainActivityPro,operationId,msg)};send.isEnabled=true;if(r.ok){input.setText("");refresh()}else toast(r.error)}}
         dialog.setOnShowListener{refresh();lifecycleScope.launch{repeat(20){kotlinx.coroutines.delay(2500);if(dialog.isShowing)refresh()}}}
         dialog.show()
+    }
+
+    private fun requestNotificationPermission(){
+        if(android.os.Build.VERSION.SDK_INT>=33){ requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),7001) }
+    }
+
+    private fun startChatService(){
+        if(chatServiceStarted)return
+        try{ androidx.core.content.ContextCompat.startForegroundService(this,Intent(this,ChatNotificationService::class.java)); chatServiceStarted=true }catch(_:Exception){}
+    }
+
+    private fun stopChatService(){
+        try{ stopService(Intent(this,ChatNotificationService::class.java)) }catch(_:Exception){}
+        chatServiceStarted=false
     }
 
     private fun notificationAccess():Boolean{
