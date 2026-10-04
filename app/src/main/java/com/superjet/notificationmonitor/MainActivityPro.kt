@@ -50,6 +50,7 @@ class MainActivityPro : AppCompatActivity() {
     private var selectedOperation=""
     private var busy=false
     private var chatServiceStarted=false
+    private var pendingOpenBookingId=""
 
     override fun onCreate(savedInstanceState: Bundle?){
         super.onCreate(savedInstanceState)
@@ -57,13 +58,22 @@ class MainActivityPro : AppCompatActivity() {
         window.navigationBarColor=Color.parseColor(NAVY)
         root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))}
         setContentView(root)
-        if(SecureConfig.getToken(this).isBlank()) showLogin() else { showDashboard(); startChatService() }
+        pendingOpenBookingId=intent?.getStringExtra("open_booking_id").orEmpty()
+        if(SecureConfig.getToken(this).isBlank()) showLogin() else { showDashboard(); startChatService(); maybeOpenNotificationBooking() }
     }
 
     override fun onResume(){
         super.onResume()
         if(SecureConfig.getToken(this).isNotBlank() && opsBox!=null) refresh()
     }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingOpenBookingId=intent?.getStringExtra("open_booking_id").orEmpty()
+        if(pendingOpenBookingId.isNotBlank() && SecureConfig.getToken(this).isNotBlank()) maybeOpenNotificationBooking()
+    }
+
 
     private fun reset(){root.removeAllViews();status=null;opsBox=null;notifBox=null}
 
@@ -107,7 +117,7 @@ class MainActivityPro : AppCompatActivity() {
             gravity=Gravity.CENTER
         },match().apply{topMargin=dp(13)})
         page.addView(card,match().apply{bottomMargin=dp(18)})
-        page.addView(txt("SUPERJET STAFF • v2.2 PRO",10.5f,MUTED,true).apply{gravity=Gravity.CENTER},match())
+        page.addView(txt("SUPERJET STAFF • v3.3 FINAL PRO",10.5f,MUTED,true).apply{gravity=Gravity.CENTER},match())
         scroll.addView(page)
         root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
     }
@@ -282,6 +292,23 @@ class MainActivityPro : AppCompatActivity() {
                 }.setNegativeButton("إغلاق",null).show()
             }
         }.setNegativeButton("إلغاء",null).show()
+    }
+
+
+    private fun maybeOpenNotificationBooking(){
+        val bid=pendingOpenBookingId.trim()
+        if(bid.isBlank()) return
+        pendingOpenBookingId=""
+        lifecycleScope.launch {
+            val r=withContext(Dispatchers.IO){StaffClient.search(this@MainActivityPro,bid)}
+            if(!r.ok)return@launch
+            val arr=r.body.optJSONArray("results")?:return@launch
+            if(arr.length()==0)return@launch
+            val x=arr.optJSONObject(0)?:return@launch
+            val op=x.optString("operation_id")
+            val booking=x.optString("booking_id").ifBlank{bid}
+            if(op.isNotBlank()) showChatDialog(op,booking)
+        }
     }
 
     private fun showDeviceInfo(){
