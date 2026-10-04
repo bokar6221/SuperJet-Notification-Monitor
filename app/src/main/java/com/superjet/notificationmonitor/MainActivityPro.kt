@@ -86,14 +86,14 @@ class MainActivityPro : AppCompatActivity() {
         form.addView(txt("تسجيل دخول الموظف",19f,TEXT,true),match().apply{bottomMargin=dp(17)})
 
         val ul=TextInputLayout(this).apply{
-            hint="اسم المستخدم";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE;boxCornerRadiusTopEnd=dp(16).toFloat();boxCornerRadiusBottomEnd=dp(16).toFloat()
+            hint="اسم المستخدم";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE
         }
         userBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT}
         ul.addView(userBox);form.addView(ul,match().apply{bottomMargin=dp(13)})
 
         val pl=TextInputLayout(this).apply{
             hint="كلمة المرور";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE
-            endIconMode=TextInputLayout.END_ICON_PASSWORD_TOGGLE;boxCornerRadiusTopEnd=dp(16).toFloat();boxCornerRadiusBottomEnd=dp(16).toFloat()
+            endIconMode=TextInputLayout.END_ICON_PASSWORD_TOGGLE
         }
         passBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD}
         pl.addView(passBox);form.addView(pl,match().apply{bottomMargin=dp(18)})
