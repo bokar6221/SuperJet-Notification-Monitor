@@ -1,291 +1,334 @@
 package com.superjet.notificationmonitor
 
-import android.app.AlertDialog
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import android.text.InputType
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.provider.Settings
 import android.view.ViewGroup
+import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var adapter: NotificationAdapter
-    private lateinit var status: TextView
-    private lateinit var syncButton: Button
-    private var manualSyncRunning = false
+    private lateinit var root: LinearLayout
+    private var loginUser: EditText? = null
+    private var loginPass: EditText? = null
+    private var statusText: TextView? = null
+    private var operationsBox: LinearLayout? = null
+    private var selectedOperationId: String = ""
+
+    private val ticketPicker = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNullOrEmpty() || selectedOperationId.isBlank()) return@registerForActivityResult
+        showFinalRefDialog(uris.take(4))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val layout = LinearLayout(this).apply {
+        root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
         }
-
-        val title = TextView(this).apply {
-            text = "SuperJet Payment Monitor"
-            textSize = 24f
-        }
-
-        status = TextView(this).apply {
-            text = "قارئ الإشعارات يعمل."
-            textSize = 16f
-            setPadding(0, 16, 0, 16)
-        }
-
-        val access = Button(this).apply {
-            text = "فتح صلاحية قراءة الإشعارات"
-            setOnClickListener {
-                startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
-            }
-        }
-
-        val connection = Button(this).apply {
-            text = "إعداد اتصال SuperJet"
-            setOnClickListener { showConnectionDialog() }
-        }
-
-        syncButton = Button(this).apply {
-            text = "مزامنة عمليات الدفع الآن"
-            setOnClickListener { runManualSync() }
-        }
-
-        val clear = Button(this).apply {
-            text = "مسح السجل"
-            setOnClickListener {
-                NotificationStore.clear(this@MainActivity)
-                adapter.refresh()
-                updateStatus()
-            }
-        }
-
-        val list = RecyclerView(this).apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
-        }
-        adapter = NotificationAdapter(this)
-        list.adapter = adapter
-
-        layout.addView(title)
-        layout.addView(status)
-        layout.addView(access)
-        layout.addView(connection)
-        layout.addView(syncButton)
-        layout.addView(clear)
-        layout.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(layout)
-
-        NotificationSyncScheduler.enqueue(this)
+        setContentView(root)
+        showHome()
     }
 
     override fun onResume() {
         super.onResume()
-        if (::adapter.isInitialized) {
-            adapter.refresh()
-            updateStatus()
+        if (SecureConfig.getToken(this).isNotBlank() && operationsBox != null) {
+            refreshDashboard()
         }
     }
 
-    private fun updateStatus() {
-        val pending = NotificationStore.pending(this).size
-        val configured = SecureConfig.getServerUrl(this).isNotBlank() &&
-            SecureConfig.getToken(this).isNotBlank()
-        status.text = "قارئ الإشعارات يعمل — السجلات: " + adapter.itemCount +
-            " — دفع معلقة: " + pending +
-            " — الاتصال: " + if (configured) "مُعد" else "غير مُعد"
+    private fun clearRoot() {
+        root.removeAllViews()
     }
 
-    private fun runManualSync() {
-        if (manualSyncRunning) return
+    private fun showHome() {
+        if (SecureConfig.getToken(this).isBlank()) showLogin() else showDashboard()
+    }
 
-        manualSyncRunning = true
-        syncButton.isEnabled = false
-        status.text = "جاري مزامنة عمليات الدفع..."
+    private fun showLogin() {
+        clearRoot()
+        val title = TextView(this).apply {
+            text = "SuperJet Staff"
+            textSize = 28f
+        }
+        val sub = TextView(this).apply {
+            text = "نظام الموظفين للدفع والحجوزات والمتابعة"
+            textSize = 16f
+            setPadding(0, 8, 0, 22)
+        }
+        loginUser = EditText(this).apply {
+            hint = "اسم المستخدم"
+            setSingleLine()
+        }
+        loginPass = EditText(this).apply {
+            hint = "كلمة المرور"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine()
+        }
+        val login = Button(this).apply {
+            text = "دخول آمن"
+            setOnClickListener { doLogin() }
+        }
+        val fixed = TextView(this).apply {
+            text = "إعدادات الاتصال ثابتة داخل التطبيق ولا يحتاج الموظف لإدخال Server أو Token."
+            textSize = 13f
+            setPadding(0, 16, 0, 0)
+        }
+        root.addView(title)
+        root.addView(sub)
+        root.addView(loginUser)
+        root.addView(loginPass)
+        root.addView(login)
+        root.addView(fixed)
+    }
 
-        // Cancel any old/retrying worker so a previous failed attempt cannot
-        // prevent this explicit manual sync from running.
-        NotificationSyncScheduler.cancel(this)
-
+    private fun doLogin() {
+        val u = loginUser?.text?.toString()?.trim().orEmpty()
+        val p = loginPass?.text?.toString().orEmpty()
+        if (u.isBlank() || p.isBlank()) {
+            Toast.makeText(this, "أدخل اسم المستخدم وكلمة المرور.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "جاري تسجيل الدخول...", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
-            val summary = withContext(Dispatchers.IO) {
-                syncPendingDirect()
-            }
-
-            adapter.refresh()
-            manualSyncRunning = false
-            syncButton.isEnabled = true
-
-            status.text = when {
-                summary.total == 0 ->
-                    "لا توجد عمليات دفع معلقة للمزامنة."
-                summary.failed == 0 ->
-                    "تم إرسال ${summary.sent} عملية للسيرفر ✅"
-                summary.sent > 0 ->
-                    "تم إرسال ${summary.sent} عملية، وفشل ${summary.failed} ❌"
-                else ->
-                    "فشلت مزامنة ${summary.failed} عملية ❌" +
-                        if (summary.lastError.isNotBlank()) "\n" + summary.lastError else ""
-            }
-
-            if (NotificationStore.pending(this@MainActivity).isNotEmpty()) {
+            val r = withContext(Dispatchers.IO) { StaffApi.login(this@MainActivity, u, p) }
+            if (r.ok) {
                 NotificationSyncScheduler.enqueue(this@MainActivity)
-            }
-        }
-    }
-
-    private fun syncPendingDirect(): SyncSummary {
-        val pending = NotificationStore.pending(this)
-        var sent = 0
-        var failed = 0
-        var lastError = ""
-
-        for (item in pending) {
-            val result = NotificationApi.syncOne(this, item)
-            if (result.ok) {
-                NotificationStore.markSynced(this, item.eventId)
-                sent++
+                showDashboard()
             } else {
-                NotificationStore.markSynced(this, item.eventId, result.error)
-                failed++
-                lastError = result.error
+                Toast.makeText(this@MainActivity, r.error, Toast.LENGTH_LONG).show()
             }
         }
-
-        return SyncSummary(
-            total = pending.size,
-            sent = sent,
-            failed = failed,
-            lastError = lastError
-        )
     }
 
-    private data class SyncSummary(
-        val total: Int,
-        val sent: Int,
-        val failed: Int,
-        val lastError: String
-    )
+    private fun showDashboard() {
+        clearRoot()
+        statusText = TextView(this).apply { textSize = 15f; setPadding(0, 8, 0, 12) }
+        root.addView(TextView(this).apply {
+            text = "SuperJet Staff"
+            textSize = 26f
+        })
+        root.addView(statusText)
 
-    private fun showConnectionDialog() {
-        val box = LinearLayout(this).apply {
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val refresh = Button(this).apply {
+            text = "تحديث"
+            setOnClickListener { refreshDashboard() }
+        }
+        val sync = Button(this).apply {
+            text = "مزامنة الدفع"
+            setOnClickListener { manualSync() }
+        }
+        val access = Button(this).apply {
+            text = "صلاحية الإشعارات"
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+        }
+        val logout = Button(this).apply {
+            text = "خروج"
+            setOnClickListener {
+                SecureConfig.clearSession(this@MainActivity)
+                NotificationSyncScheduler.cancel(this@MainActivity)
+                showLogin()
+            }
+        }
+        bar.addView(refresh, LinearLayout.LayoutParams(0, -2, 1f))
+        bar.addView(sync, LinearLayout.LayoutParams(0, -2, 1f))
+        bar.addView(access, LinearLayout.LayoutParams(0, -2, 1f))
+        bar.addView(logout, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(bar)
+
+        val scroll = ScrollView(this)
+        operationsBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 8, 32, 8)
+            setPadding(0, 12, 0, 24)
         }
+        scroll.addView(operationsBox)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        refreshDashboard()
+    }
 
-        val url = EditText(this).apply {
-            hint = "عنوان السيرفر الأساسي"
-            setSingleLine(true)
-            setText(SecureConfig.getServerUrl(this@MainActivity))
+    private fun refreshDashboard() {
+        lifecycleScope.launch {
+            val r = withContext(Dispatchers.IO) { StaffApi.dashboard(this@MainActivity) }
+            if (!r.ok) {
+                if (r.error.startsWith("HTTP_401") || r.error.contains("STAFF_AUTH_REQUIRED")) {
+                    SecureConfig.clearSession(this@MainActivity)
+                    showLogin()
+                    return@launch
+                }
+                statusText?.text = "تعذر تحديث البيانات: " + r.error
+                return@launch
+            }
+            val employee = r.body.optJSONObject("employee") ?: JSONObject()
+            val d = r.body.optJSONObject("dashboard") ?: JSONObject()
+            val byMethod = d.optJSONArray("by_method") ?: org.json.JSONArray()
+            var walletTotal = 0.0
+            var instaTotal = 0.0
+            for (i in 0 until byMethod.length()) {
+                val x = byMethod.optJSONObject(i) ?: continue
+                when (x.optString("payment_method")) {
+                    "محفظة إلكترونية" -> walletTotal = x.optDouble("total", 0.0)
+                    "إنستا باي" -> instaTotal = x.optDouble("total", 0.0)
+                }
+            }
+            statusText?.text = employee.optString("name") + " • " +
+                (if (employee.optString("role") == "manager") "مدير" else "خدمة عملاء") +
+                " • " + employee.optString("status") +
+                "\nالعمليات اليوم: " + d.optJSONObject("today")?.optInt("operations", 0) +
+                " • إجمالي اليوم: " + d.optJSONObject("today")?.optDouble("total", 0.0) + " جنيه" +
+                "\nمحافظ: " + walletTotal + " • InstaPay: " + instaTotal + " جنيه"
+            renderOperations(d.optJSONArray("operations") ?: JSONArray())
         }
+    }
 
-        val token = EditText(this).apply {
-            hint = "Android Token"
-            setSingleLine(true)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(SecureConfig.getToken(this@MainActivity))
+    private fun renderOperations(arr: JSONArray) {
+        val box = operationsBox ?: return
+        box.removeAllViews()
+        if (arr.length() == 0) {
+            box.addView(TextView(this).apply {
+                text = "لا توجد عمليات حالياً."
+                textSize = 16f
+                setPadding(12, 20, 12, 20)
+            })
+            return
         }
+        for (i in 0 until arr.length()) {
+            val op = arr.optJSONObject(i) ?: continue
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(16, 16, 16, 16)
+                setBackgroundColor(0xFF1A2028.toInt())
+            }
+            val title = TextView(this).apply {
+                textSize = 17f
+                text = op.optString("booking_id") + " • " + op.optString("status")
+            }
+            val info = TextView(this).apply {
+                text = op.optString("customer_name") + "\n" +
+                    op.optString("from_name") + " → " + op.optString("to_name") + "\n" +
+                    op.optString("travel_date") + " " + op.optString("travel_time") + "\n" +
+                    "المبلغ: " + op.optDouble("amount", 0.0) + " جنيه • " +
+                    op.optString("payment_method")
+                textSize = 14f
+                setPadding(0, 8, 0, 8)
+            }
+            val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val approve = Button(this).apply {
+                text = "تأكيد الدفع"
+                setOnClickListener { act(op.optString("operation_id"), true) }
+            }
+            val reject = Button(this).apply {
+                text = "رفض"
+                setOnClickListener { rejectPrompt(op.optString("operation_id")) }
+            }
+            val ticket = Button(this).apply {
+                text = "التذكرة"
+                setOnClickListener {
+                    selectedOperationId = op.optString("operation_id")
+                    ticketPicker.launch("image/*")
+                }
+            }
+            buttons.addView(approve, LinearLayout.LayoutParams(0, -2, 1f))
+            buttons.addView(reject, LinearLayout.LayoutParams(0, -2, 1f))
+            buttons.addView(ticket, LinearLayout.LayoutParams(0, -2, 1f))
+            card.addView(title)
+            card.addView(info)
+            card.addView(buttons)
+            val lp = LinearLayout.LayoutParams(-1, -2)
+            lp.setMargins(0, 0, 0, 12)
+            box.addView(card, lp)
+        }
+    }
 
-        box.addView(url)
-        box.addView(token)
+    private fun act(operationId: String, approve: Boolean) {
+        if (operationId.isBlank()) return
+        lifecycleScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                if (approve) StaffApi.approve(this@MainActivity, operationId)
+                else StaffApi.reject(this@MainActivity, operationId, "رفض موظف")
+            }
+            Toast.makeText(this@MainActivity, if (r.ok) "تم الحفظ." else r.error, Toast.LENGTH_LONG).show()
+            if (r.ok) refreshDashboard()
+        }
+    }
 
-        AlertDialog.Builder(this)
-            .setTitle("إعداد اتصال SuperJet")
-            .setMessage("التطبيق يضيف /payment/android-notification تلقائيًا. استخدم HTTPS. الـToken يُحفظ باستخدام Android Keystore.")
-            .setView(box)
-            .setPositiveButton("حفظ ومزامنة") { _, _ ->
-                SecureConfig.setServerUrl(this, url.text.toString())
-                SecureConfig.setToken(this, token.text.toString())
-                NotificationSyncScheduler.enqueue(this)
-                updateStatus()
+    private fun rejectPrompt(operationId: String) {
+        val input = EditText(this).apply { hint = "سبب الرفض" }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("رفض عملية الدفع")
+            .setView(input)
+            .setPositiveButton("رفض") { _, _ ->
+                lifecycleScope.launch {
+                    val r = withContext(Dispatchers.IO) {
+                        StaffApi.reject(this@MainActivity, operationId, input.text.toString().ifBlank { "رفض موظف" })
+                    }
+                    Toast.makeText(this@MainActivity, if (r.ok) "تم رفض العملية." else r.error, Toast.LENGTH_LONG).show()
+                    if (r.ok) refreshDashboard()
+                }
             }
             .setNegativeButton("إلغاء", null)
             .show()
     }
-}
 
-class NotificationAdapter(private val activity: AppCompatActivity) :
-    RecyclerView.Adapter<NotificationAdapter.VH>() {
-
-    private var items = NotificationStore.all(activity)
-
-    fun refresh() {
-        items = NotificationStore.all(activity)
-        notifyDataSetChanged()
-    }
-
-    class VH(val view: TextView) : RecyclerView.ViewHolder(view)
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val tv = TextView(parent.context).apply {
-            textSize = 14f
-            setPadding(12, 18, 12, 18)
+    private fun showFinalRefDialog(uris: List<Uri>) {
+        val input = EditText(this).apply {
+            hint = "رقم الحجز الفعلي في SuperJet (اختياري)"
+            setSingleLine()
         }
-        return VH(tv)
-    }
-
-    override fun onBindViewHolder(holder: VH, position: Int) {
-        val x = items[position]
-        val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-            .format(Date(x.time))
-
-        val header = if (x.isPaymentNotification) {
-            "💳 إشعار دفع — " + providerLabel(x.provider)
-        } else {
-            "🔔 إشعار عادي"
-        }
-
-        val details = if (x.isPaymentNotification) buildString {
-            append("الحالة: ").append(statusLabel(x.parseStatus)).append("\n")
-            append("المزامنة: ").append(if (x.synced) "تم الإرسال للسيرفر" else "معلقة").append("\n")
-            if (x.transactionType != "UNKNOWN") append("النوع: ").append(typeLabel(x.transactionType)).append("\n")
-            x.amount?.let {
-                append("المبلغ: ").append(String.format(Locale.US, "%.2f", it)).append(" جنيه\n")
+        android.app.AlertDialog.Builder(this)
+            .setTitle("رفع التذكرة الفعلية")
+            .setMessage("بعد إتمام الحجز الحقيقي في SuperJet اختر صورة أو صور التذكرة.")
+            .setView(input)
+            .setPositiveButton("إرسال للعميل") { _, _ ->
+                lifecycleScope.launch {
+                    Toast.makeText(this@MainActivity, "جاري رفع وإرسال التذكرة...", Toast.LENGTH_SHORT).show()
+                    val r = withContext(Dispatchers.IO) {
+                        StaffApi.uploadTicket(this@MainActivity, selectedOperationId, uris, input.text.toString())
+                    }
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (r.ok) "تم إرسال التذكرة للعميل." else r.error,
+                        Toast.LENGTH_LONG
+                    ).show()
+                    if (r.ok) refreshDashboard()
+                }
             }
-            if (x.reference.isNotBlank()) append("رقم العملية: ").append(x.reference).append("\n")
-            if (x.senderPhone.isNotBlank()) append("رقم المحول: ").append(x.senderPhone).append("\n")
-            if (x.recipientAccount.isNotBlank()) append("رقم المستلم: ").append(x.recipientAccount).append("\n")
-            if (x.transactionDate.isNotBlank()) append("تاريخ العملية: ").append(x.transactionDate).append("\n")
-            if (x.transactionTime.isNotBlank()) append("وقت العملية: ").append(x.transactionTime).append("\n")
-            if (x.syncError.isNotBlank()) append("خطأ المزامنة: ").append(x.syncError).append("\n")
-        } else ""
-
-        holder.view.text = header + "\n" + details +
-            "العنوان: " + x.title + "\n" +
-            "النص الكامل:\n" + x.text + "\n" +
-            "وقت استقبال الإشعار: " + time + "\n" +
-            "Package: " + x.packageName
+            .setNegativeButton("إلغاء", null)
+            .show()
     }
 
-    override fun getItemCount() = items.size
-
-    private fun providerLabel(provider: String): String = when (provider) {
-        "VODAFONE_CASH" -> "Vodafone Cash"
-        "ORANGE_CASH" -> "Orange Cash"
-        "ETISALAT_CASH" -> "Etisalat Cash"
-        "WE_PAY" -> "WE Pay"
-        "INSTAPAY" -> "InstaPay"
-        else -> provider.ifBlank { "غير معروف" }
-    }
-
-    private fun statusLabel(status: String): String = when (status) {
-        "PARSED" -> "تم تحليل البيانات"
-        "UNPARSED" -> "إشعار دفع غير مكتمل التحليل"
-        else -> status.ifBlank { "غير معروف" }
-    }
-
-    private fun typeLabel(type: String): String = when (type) {
-        "TRANSFER_IN" -> "تحويل وارد"
-        "TRANSFER_OUT" -> "تحويل صادر"
-        else -> type
+    private fun manualSync() {
+        NotificationSyncScheduler.cancel(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val pending = NotificationStore.pending(this@MainActivity)
+            var sent = 0
+            var failed = 0
+            for (item in pending) {
+                val r = NotificationApi.syncOne(this@MainActivity, item)
+                if (r.ok) {
+                    NotificationStore.markSynced(this@MainActivity, item.eventId)
+                    sent++
+                } else {
+                    NotificationStore.markSynced(this@MainActivity, item.eventId, r.error)
+                    failed++
+                }
+            }
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@MainActivity, "مزامنة: تم " + sent + " • فشل " + failed, Toast.LENGTH_LONG).show()
+                NotificationSyncScheduler.enqueue(this@MainActivity)
+                refreshDashboard()
+            }
+        }
     }
 }
