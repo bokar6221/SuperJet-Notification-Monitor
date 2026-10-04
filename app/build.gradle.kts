@@ -6,20 +6,26 @@ plugins {
 android {
     namespace = "com.superjet.notificationmonitor"
     compileSdk = 35
+
     defaultConfig {
         applicationId = "com.superjet.notificationmonitor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.5"
+        versionCode = 6
+        versionName = "2.0.0-INTEGRATED-STAFF"
+        buildConfigField("String", "SUPERJET_BASE_URL", "\"https://superjet.tail0f920c.ts.net:8443\"")
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
     buildFeatures { buildConfig = true }
 }
+
 kotlin { jvmToolchain(17) }
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
