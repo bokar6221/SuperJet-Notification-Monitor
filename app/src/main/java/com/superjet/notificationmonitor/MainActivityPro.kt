@@ -155,13 +155,13 @@ class MainActivityPro : AppCompatActivity() {
         val sync=button("مزامنة الدفع  ⇄",GOLD,true);val access=button("صلاحية الإشعارات  ◉",BLUE,false)
         a1.addView(sync,weight());a1.addView(access,weight().apply{marginStart=dp(8)});actions.addView(a1,match().apply{bottomMargin=dp(8)})
         val a2=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        val refreshBtn=button("تحديث  ⟳",BLUE,false);val info=button("حالة الجهاز  ✓",GREEN,false)
-        a2.addView(refreshBtn,weight());a2.addView(info,weight().apply{marginStart=dp(8)});actions.addView(a2)
+        val refreshBtn=button("تحديث  ⟳",BLUE,false);val info=button("حالة الجهاز  ✓",GREEN,false);val searchBtn=button("بحث  ⌕",GOLD,true)
+        a2.addView(refreshBtn,weight());a2.addView(info,weight().apply{marginStart=dp(8)});a2.addView(searchBtn,weight().apply{marginStart=dp(8)});actions.addView(a2)
         page.addView(actions,match().apply{bottomMargin=dp(18)})
         sync.setOnClickListener{manualSync()}
         access.setOnClickListener{startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))}
         refreshBtn.setOnClickListener{refresh()}
-        info.setOnClickListener{showDeviceInfo()}
+        info.setOnClickListener{showDeviceInfo()};searchBtn.setOnClickListener{showSearchDialog()}
 
         page.addView(txt("ملخص اليوم",18f,TEXT,true),match().apply{bottomMargin=dp(8)})
         val stats=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
@@ -214,8 +214,8 @@ class MainActivityPro : AppCompatActivity() {
             top.addView(pill(o.optString("status").ifBlank{"PAYMENT_PENDING"},GREEN),wrap());b.addView(top,match().apply{bottomMargin=dp(7)})
             b.addView(txt(o.optString("customer_name")+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمبلغ: "+String.format(Locale.US,"%.2f",o.optDouble("amount",0.0))+" جنيه",12.5f,MUTED,false),match().apply{bottomMargin=dp(10)})
             val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-            val yes=button("تأكيد  ✓",GREEN,false);val no=button("رفض  ×",RED,false)
-            row.addView(yes,weight());row.addView(no,weight().apply{marginStart=dp(7)});b.addView(row)
+            val yes=button("تأكيد  ✓",GREEN,false);val no=button("رفض  ×",RED,false);val chat=button("محادثة  💬",BLUE,false)
+            row.addView(yes,weight());row.addView(no,weight().apply{marginStart=dp(7)});row.addView(chat,weight().apply{marginStart=dp(7)});b.addView(row);chat.setOnClickListener{showChatDialog(o.optString("operation_id"),o.optString("booking_id"))}
             yes.setOnClickListener{operationAction(o.optString("operation_id"),true)}
             no.setOnClickListener{reject(o.optString("operation_id"))}
             box.addView(c,match().apply{bottomMargin=dp(9)})
@@ -267,10 +267,41 @@ class MainActivityPro : AppCompatActivity() {
         }}.setNegativeButton("إلغاء",null).show()
     }
 
+    private fun showSearchDialog(){
+        val input=EditText(this).apply{hint="كود الحجز أو الموبايل أو اسم العميل أو المرجع";isSingleLine=true;setTextColor(Color.WHITE);setHintTextColor(Color.parseColor(MUTED))}
+        AlertDialog.Builder(this).setTitle("بحث آمن داخل عمليات SuperJet").setView(input).setPositiveButton("بحث"){_,_->
+            val q=input.text.toString().trim();if(q.isBlank())return@setPositiveButton
+            lifecycleScope.launch{
+                val r=withContext(Dispatchers.IO){StaffClient.search(this@MainActivityPro,q)}
+                if(!r.ok){toast(r.error);return@launch}
+                val arr=r.body.optJSONArray("results")?:JSONArray();if(arr.length()==0){toast("لا توجد نتائج مطابقة.");return@launch}
+                val labels=ArrayList<String>();for(i in 0 until arr.length()){val x=arr.optJSONObject(i)?:continue;labels.add(x.optString("booking_id")+" • "+x.optString("customer_name")+" • "+String.format(Locale.US,"%.2f",x.optDouble("amount",0.0))+" جنيه")}
+                AlertDialog.Builder(this@MainActivityPro).setTitle("نتائج البحث").setItems(labels.toTypedArray()){_,which->
+                    val x=arr.optJSONObject(which)?:return@setItems;showChatDialog(x.optString("operation_id"),x.optString("booking_id"))
+                }.setNegativeButton("إغلاق",null).show()
+            }
+        }.setNegativeButton("إلغاء",null).show()
+    }
+
     private fun showDeviceInfo(){
         val id=StaffClient.deviceId(this)
         val enabled=notificationAccess()
         AlertDialog.Builder(this).setTitle("حالة الجهاز").setMessage("الجهاز: "+id+"\nNotification Access: "+if(enabled)"مفعّل ✅" else "غير مفعّل ❌").setPositiveButton("حسنًا",null).show()
+    }
+
+    private fun showChatDialog(operationId:String, bookingId:String){
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(6),dp(10),0)}
+        val messages=TextView(this).apply{textSize=13f;setTextColor(Color.parseColor(TEXT));setPadding(dp(8),dp(8),dp(8),dp(8))}
+        val scroll=ScrollView(this).apply{addView(messages);layoutParams=LinearLayout.LayoutParams(-1,dp(300))}
+        val input=EditText(this).apply{hint="اكتب رسالة للعميل...";setTextColor(Color.WHITE);setHintTextColor(Color.parseColor(MUTED))}
+        val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(0,dp(10),0,0)}
+        val send=button("إرسال",GOLD,true);row.addView(input,LinearLayout.LayoutParams(0,dp(52),1f));row.addView(send,LinearLayout.LayoutParams(dp(100),dp(52)).apply{marginStart=dp(8)})
+        box.addView(scroll);box.addView(row)
+        val dialog=AlertDialog.Builder(this).setTitle("محادثة الطلب $bookingId").setView(box).setNegativeButton("إغلاق",null).create()
+        fun refresh(){lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.chat(this@MainActivityPro,operationId)};if(r.ok){val arr=r.body.optJSONArray("messages")?:JSONArray();val sb=StringBuilder();for(i in 0 until arr.length()){val z=arr.optJSONObject(i)?:continue;sb.append(if(z.optString("sender_type")=="staff")"أنت" else "العميل").append(": ").append(z.optString("message")).append("\n\n")};messages.text=sb.toString().ifBlank{"لا توجد رسائل بعد."};scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}}}
+        send.setOnClickListener{val msg=input.text.toString().trim();if(msg.isBlank())return@setOnClickListener;send.isEnabled=false;lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.sendChat(this@MainActivityPro,operationId,msg)};send.isEnabled=true;if(r.ok){input.setText("");refresh()}else toast(r.error)}}
+        dialog.setOnShowListener{refresh();lifecycleScope.launch{repeat(20){kotlinx.coroutines.delay(2500);if(dialog.isShowing)refresh()}}}
+        dialog.show()
     }
 
     private fun notificationAccess():Boolean{
@@ -308,6 +339,9 @@ private object StaffClient{
     fun dashboard(c:Context)=req(c,"GET","/api/mobile/dashboard",null,true)
     fun approve(c:Context,id:String)=req(c,"POST","/api/mobile/operations/$id/approve","{}",true)
     fun reject(c:Context,id:String,reason:String)=req(c,"POST","/api/mobile/operations/$id/reject",JSONObject().put("reason",reason).toString(),true)
+    fun chat(c:Context,operationId:String)=req(c,"GET","/api/mobile/operations/"+operationId+"/chat",null,true)
+    fun sendChat(c:Context,operationId:String,message:String)=req(c,"POST","/api/mobile/operations/"+operationId+"/chat",JSONObject().put("message",message).toString(),true)
+    fun search(c:Context,q:String)=req(c,"GET","/api/mobile/search?q="+java.net.URLEncoder.encode(q,"UTF-8"),null,true)
     private fun req(c:Context,method:String,path:String,body:String?,auth:Boolean):StaffResult{
         val base=SecureConfig.getServerUrl(c).trimEnd('/')
         if(base.isBlank())return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
