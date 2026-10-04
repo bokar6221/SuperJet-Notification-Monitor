@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
-
     <application
         android:theme="@style/Theme.SuperJetNotificationMonitor"
-        android:label="SuperJet Payment Monitor"
+        android:label="SuperJet Staff"
+        android:icon="@drawable/superjet_logo"
+        android:roundIcon="@drawable/superjet_logo"
         android:allowBackup="false"
         android:supportsRtl="true">
         <activity
-            android:name=".MainActivity"
+            android:name=".MainActivityPro"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-
         <service
             android:name=".NotificationReaderService"
-            android:label="SuperJet Notification Reader"
+            android:label="SuperJet Payment Notification Reader"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
             <intent-filter>

@@ -1,0 +1,329 @@
+package com.superjet.notificationmonitor
+
+import android.content.Context
+import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
+import android.os.Bundle
+import android.provider.Settings
+import android.text.InputType
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.*
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
+
+class MainActivityPro : AppCompatActivity() {
+    companion object {
+        private const val BG="#07111D"; private const val SURFACE="#101D2B"
+        private const val SURFACE2="#0D1824"; private const val NAVY="#07111D"
+        private const val STROKE="#294055"; private const val GOLD="#F2C14E"
+        private const val BLUE="#397DFF"; private const val GREEN="#32CC86"
+        private const val RED="#E96868"; private const val TEXT="#F5F7FA"
+        private const val MUTED="#9AAABC"
+    }
+
+    private lateinit var root: LinearLayout
+    private var userBox: TextInputEditText?=null
+    private var passBox: TextInputEditText?=null
+    private var status: TextView?=null
+    private var opsBox: LinearLayout?=null
+    private var notifBox: LinearLayout?=null
+    private var statOps: TextView?=null
+    private var statAmount: TextView?=null
+    private var statNotif: TextView?=null
+    private var selectedOperation=""
+    private var busy=false
+
+    override fun onCreate(savedInstanceState: Bundle?){
+        super.onCreate(savedInstanceState)
+        window.statusBarColor=Color.parseColor(NAVY)
+        window.navigationBarColor=Color.parseColor(NAVY)
+        root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))}
+        setContentView(root)
+        if(SecureConfig.getToken(this).isBlank()) showLogin() else showDashboard()
+    }
+
+    override fun onResume(){
+        super.onResume()
+        if(SecureConfig.getToken(this).isNotBlank() && opsBox!=null) refresh()
+    }
+
+    private fun reset(){root.removeAllViews();status=null;opsBox=null;notifBox=null}
+
+    private fun showLogin(){
+        reset()
+        val scroll=ScrollView(this).apply{fillViewport=true}
+        val page=LinearLayout(this).apply{
+            orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER_HORIZONTAL
+            setPadding(dp(22),dp(28),dp(22),dp(28))
+        }
+
+        val logo=ImageView(this).apply{setImageResource(R.drawable.superjet_logo);scaleType=ImageView.ScaleType.CENTER_INSIDE}
+        page.addView(logo,lp(118,118).apply{bottomMargin=dp(12)})
+        page.addView(txt("SUPERJET • STAFF OPERATIONS",11.5f,GOLD,true).apply{gravity=Gravity.CENTER},match().apply{bottomMargin=dp(7)})
+        page.addView(txt("SuperJet Staff",31f,TEXT,true).apply{gravity=Gravity.CENTER},match())
+        page.addView(txt("الدفع • الحجوزات • مطابقة التحويلات",14f,MUTED,false).apply{gravity=Gravity.CENTER},match().apply{bottomMargin=dp(24)})
+
+        val card=card(SURFACE,24f)
+        val form=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(22),dp(20),dp(20))}
+        card.addView(form)
+        form.addView(txt("تسجيل دخول الموظف",19f,TEXT,true),match().apply{bottomMargin=dp(17)})
+
+        val ul=TextInputLayout(this).apply{
+            hint="اسم المستخدم";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE
+            boxCornerRadiusTopStart=dp(16).toFloat();boxCornerRadiusTopEnd=dp(16).toFloat()
+            boxCornerRadiusBottomStart=dp(16).toFloat();boxCornerRadiusBottomEnd=dp(16).toFloat()
+        }
+        userBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT}
+        ul.addView(userBox);form.addView(ul,match().apply{bottomMargin=dp(13)})
+
+        val pl=TextInputLayout(this).apply{
+            hint="كلمة المرور";boxBackgroundMode=TextInputLayout.BOX_BACKGROUND_OUTLINE
+            endIconMode=TextInputLayout.END_ICON_PASSWORD_TOGGLE
+            boxCornerRadiusTopStart=dp(16).toFloat();boxCornerRadiusTopEnd=dp(16).toFloat()
+            boxCornerRadiusBottomStart=dp(16).toFloat();boxCornerRadiusBottomEnd=dp(16).toFloat()
+        }
+        passBox=TextInputEditText(this).apply{isSingleLine=true;textSize=16f;inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD}
+        pl.addView(passBox);form.addView(pl,match().apply{bottomMargin=dp(18)})
+
+        val login=button("دخول آمن  ↪",GOLD,true)
+        form.addView(login,match())
+        login.setOnClickListener{doLogin(login)}
+
+        form.addView(txt("لا يحتاج الموظف إدخال عنوان السيرفر أو Token. يتم إنشاء جلسة آمنة بعد تسجيل الدخول.",11f,MUTED,false).apply{
+            gravity=Gravity.CENTER
+        },match().apply{topMargin=dp(13)})
+        page.addView(card,match().apply{bottomMargin=dp(18)})
+        page.addView(txt("SUPERJET STAFF • v2.2 PRO",10.5f,MUTED,true).apply{gravity=Gravity.CENTER},match())
+        scroll.addView(page)
+        root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+    }
+
+    private fun doLogin(btn:MaterialButton){
+        val u=userBox?.text?.toString()?.trim().orEmpty()
+        val p=passBox?.text?.toString().orEmpty()
+        if(u.isBlank()||p.isBlank()){toast("أدخل اسم المستخدم وكلمة المرور.");return}
+        btn.isEnabled=false
+        lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){StaffClient.login(this@MainActivityPro,u,p)}
+            btn.isEnabled=true
+            if(r.ok) showDashboard() else toast(r.error)
+        }
+    }
+
+    private fun showDashboard(){
+        reset()
+        val scroll=ScrollView(this).apply{fillViewport=true}
+        val page=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(16),dp(16),dp(24))}
+        scroll.addView(page)
+
+        val header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;layoutDirection=View.LAYOUT_DIRECTION.LTR}
+        val logo=ImageView(this).apply{setImageResource(R.drawable.superjet_logo);scaleType=ImageView.ScaleType.CENTER_INSIDE}
+        header.addView(logo,lp(54,54).apply{marginEnd=dp(10)})
+        val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;layoutDirection=View.LAYOUT_DIRECTION_RTL}
+        h.addView(txt("SuperJet Staff",23f,TEXT,true),match())
+        status=txt("جارٍ تحميل بيانات الموظف...",12f,MUTED,false);h.addView(status,match().apply{topMargin=dp(2)})
+        header.addView(h,LinearLayout.LayoutParams(0,-2,1f))
+        val out=button("خروج",RED,false).apply{minHeight=dp(42)}
+        header.addView(out,wrap().apply{marginStart=dp(8)})
+        out.setOnClickListener{SecureConfig.clearToken(this);showLogin()}
+        page.addView(header,match().apply{bottomMargin=dp(14)})
+
+        val hero=card("#0F2435",20f);val hb=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(15),dp(16),dp(15))}
+        hero.addView(hb)
+        hb.addView(txt("مركز العمليات",18f,TEXT,true),match().apply{bottomMargin=dp(8)})
+        val badges=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+        badges.addView(pill("● متصل",GREEN),wrap())
+        badges.addView(pill(if(notificationAccess())"الإشعارات مفعلة" else "الإشعارات تحتاج تفعيل",if(notificationAccess())GREEN else GOLD),wrap().apply{marginStart=dp(7)})
+        hb.addView(badges)
+        page.addView(hero,match().apply{bottomMargin=dp(12)})
+
+        val actions=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        val a1=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+        val sync=button("مزامنة الدفع  ⇄",GOLD,true);val access=button("صلاحية الإشعارات  ◉",BLUE,false)
+        a1.addView(sync,weight());a1.addView(access,weight().apply{marginStart=dp(8)});actions.addView(a1,match().apply{bottomMargin=dp(8)})
+        val a2=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+        val refreshBtn=button("تحديث  ⟳",BLUE,false);val info=button("حالة الجهاز  ✓",GREEN,false)
+        a2.addView(refreshBtn,weight());a2.addView(info,weight().apply{marginStart=dp(8)});actions.addView(a2)
+        page.addView(actions,match().apply{bottomMargin=dp(18)})
+        sync.setOnClickListener{manualSync()}
+        access.setOnClickListener{startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))}
+        refreshBtn.setOnClickListener{refresh()}
+        info.setOnClickListener{showDeviceInfo()}
+
+        page.addView(txt("ملخص اليوم",18f,TEXT,true),match().apply{bottomMargin=dp(8)})
+        val stats=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+        val s1=stat("العمليات","0",BLUE).also{statOps=it};val s2=stat("الإجمالي","0.00",GOLD).also{statAmount=it};val s3=stat("الإشعارات","0",GREEN).also{statNotif=it}
+        stats.addView(s1,weightCard());stats.addView(s2,weightCard().apply{marginStart=dp(8)});stats.addView(s3,weightCard().apply{marginStart=dp(8)})
+        page.addView(stats,match().apply{bottomMargin=dp(18)})
+
+        page.addView(txt("طلبات الدفع والحجوزات",18f,TEXT,true),match().apply{bottomMargin=dp(8)})
+        opsBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        page.addView(opsBox,match().apply{bottomMargin=dp(18)})
+
+        page.addView(txt("آخر إشعارات الدفع",18f,TEXT,true),match().apply{bottomMargin=dp(8)})
+        notifBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        page.addView(notifBox,match())
+        page.addView(txt("SuperJet Staff • Payment Reconciliation",10.5f,MUTED,false).apply{gravity=Gravity.CENTER},match().apply{topMargin=dp(18)})
+        root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        refresh()
+    }
+
+    private fun refresh(){
+        lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){StaffClient.dashboard(this@MainActivityPro)}
+            val locals=NotificationStore.all(this@MainActivityPro).filter{it.isPaymentNotification || it.parseStatus=="UNPARSED"}
+            statNotif?.text=locals.size.toString()
+            renderLocal(locals)
+            if(!r.ok){
+                if(r.error.startsWith("HTTP_401")){SecureConfig.clearToken(this@MainActivityPro);showLogin();return@launch}
+                status?.text="تعذر تحديث البيانات"
+                renderOperations(JSONArray())
+                return@launch
+            }
+            val emp=r.body.optJSONObject("employee")?:JSONObject()
+            val d=r.body.optJSONObject("dashboard")?:JSONObject()
+            val today=d.optJSONObject("today")?:JSONObject()
+            status?.text=emp.optString("name").ifBlank{"الموظف"}+" • "+if(emp.optString("role")=="manager")"مدير" else "موظف"+" • "+emp.optString("status").ifBlank{"OFF_SHIFT"}
+            statOps?.text=today.optInt("operations",0).toString()
+            statAmount?.text=String.format(Locale.US,"%.2f",today.optDouble("total",0.0))
+            renderOperations(d.optJSONArray("operations")?:JSONArray())
+        }
+    }
+
+    private fun renderOperations(a:JSONArray){
+        val box=opsBox?:return;box.removeAllViews()
+        if(a.length()==0){box.addView(empty("لا توجد عمليات دفع حاليًا.\nستظهر هنا عند ربط إشعار دفع بطلب حجز."));return}
+        for(i in 0 until a.length()){
+            val o=a.optJSONObject(i)?:continue
+            val c=card(SURFACE,18f);val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(14),dp(14),dp(14))};c.addView(b)
+            val top=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+            top.addView(txt(o.optString("booking_id").ifBlank{"طلب دفع"},15f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f))
+            top.addView(pill(o.optString("status").ifBlank{"PAYMENT_PENDING"},GREEN),wrap());b.addView(top,match().apply{bottomMargin=dp(7)})
+            b.addView(txt(o.optString("customer_name")+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمبلغ: "+String.format(Locale.US,"%.2f",o.optDouble("amount",0.0))+" جنيه",12.5f,MUTED,false),match().apply{bottomMargin=dp(10)})
+            val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
+            val yes=button("تأكيد  ✓",GREEN,false);val no=button("رفض  ×",RED,false)
+            row.addView(yes,weight());row.addView(no,weight().apply{marginStart=dp(7)});b.addView(row)
+            yes.setOnClickListener{operationAction(o.optString("operation_id"),true)}
+            no.setOnClickListener{reject(o.optString("operation_id"))}
+            box.addView(c,match().apply{bottomMargin=dp(9)})
+        }
+    }
+
+    private fun renderLocal(list:List<NotificationItem>){
+        val box=notifBox?:return;box.removeAllViews()
+        if(list.isEmpty()){box.addView(empty("لم يتم اكتشاف إشعار دفع حتى الآن.\nاترك قارئ الإشعارات مفعّلًا وسنظهر VF-Cash هنا فورًا."));return}
+        for(x in list.take(8)){
+            val c=card(SURFACE2,18f);val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(13),dp(12),dp(13),dp(12))};c.addView(b)
+            val top=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+            top.addView(txt(provider(x.provider),13f,GOLD,true),LinearLayout.LayoutParams(0,-2,1f))
+            top.addView(pill(if(x.synced)"تمت المزامنة" else if(x.syncError.isNotBlank())"تعذر الإرسال" else "مكتشف",if(x.synced)GREEN else GOLD),wrap());b.addView(top,match().apply{bottomMargin=dp(6)})
+            val amount=x.amount?.let{String.format(Locale.US,"%.2f جنيه",it)}?:"المبلغ غير مستخرج"
+            val nums=listOf(x.senderPhone,x.recipientAccount).filter{it.isNotBlank()}.joinToString(" • ")
+            b.addView(txt(amount+"\n"+if(nums.isBlank())"الأرقام: —" else nums+"\nالمرجع: "+x.reference.ifBlank{"—"}+"\n"+SimpleDateFormat("dd/MM/yyyy • HH:mm",Locale.getDefault()).format(Date(x.time)),12.5f,MUTED,false),match())
+            if(x.parseStatus=="UNPARSED")b.addView(txt("الإشعار محفوظ للمراجعة — لم يتم تخمين بيانات ناقصة.",11f,GOLD,true),match().apply{topMargin=dp(5)})
+            box.addView(c,match().apply{bottomMargin=dp(8)})
+        }
+    }
+
+    private fun manualSync(){
+        if(busy)return;busy=true
+        lifecycleScope.launch{
+            val pending=withContext(Dispatchers.IO){NotificationStore.pending(this@MainActivityPro)}
+            var ok=0;var bad=0
+            for(x in pending){
+                val r=withContext(Dispatchers.IO){NotificationApi.syncOne(this@MainActivityPro,x)}
+                if(r.ok){NotificationStore.markSynced(this@MainActivityPro,x.eventId);ok++}else{NotificationStore.markSynced(this@MainActivityPro,x.eventId,r.error);bad++}
+            }
+            busy=false;toast("المزامنة: نجح $ok • فشل $bad");refresh()
+        }
+    }
+
+    private fun operationAction(id:String,approve:Boolean){
+        if(id.isBlank())return
+        lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){if(approve)StaffClient.approve(this@MainActivityPro,id) else StaffClient.reject(this@MainActivityPro,id,"رفض موظف")}
+            toast(if(r.ok)"تم حفظ القرار." else r.error);if(r.ok)refresh()
+        }
+    }
+
+    private fun reject(id:String){
+        val e=EditText(this).apply{hint="سبب الرفض";minLines=2}
+        AlertDialog.Builder(this).setTitle("رفض عملية الدفع").setView(e).setPositiveButton("رفض"){_,_->lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){StaffClient.reject(this@MainActivityPro,id,e.text.toString().ifBlank{"رفض موظف"})}
+            toast(if(r.ok)"تم رفض العملية." else r.error);if(r.ok)refresh()
+        }}.setNegativeButton("إلغاء",null).show()
+    }
+
+    private fun showDeviceInfo(){
+        val id=StaffClient.deviceId(this)
+        val enabled=notificationAccess()
+        AlertDialog.Builder(this).setTitle("حالة الجهاز").setMessage("الجهاز: "+id+"\nNotification Access: "+if(enabled)"مفعّل ✅" else "غير مفعّل ❌").setPositiveButton("حسنًا",null).show()
+    }
+
+    private fun notificationAccess():Boolean{
+        val e=Settings.Secure.getString(contentResolver,"enabled_notification_listeners")?:""
+        return e.contains(packageName)
+    }
+    private fun provider(p:String)=when(p){"VODAFONE_CASH"->"VF-Cash";"ORANGE_CASH"->"Orange Cash";"ETISALAT_CASH"->"Etisalat Cash";"WE_PAY"->"WE Pay";"INSTAPAY"->"InstaPay";else->p.ifBlank{"إشعار دفع"}}
+    private fun txt(s:String,size:Float,color:String,bold:Boolean)=TextView(this).apply{text=s;textSize=size;setTextColor(Color.parseColor(color));typeface=if(bold)Typeface.DEFAULT_BOLD else Typeface.DEFAULT;setLineSpacing(0f,1.16f)}
+    private fun card(bg:String,r:Float)=MaterialCardView(this).apply{radius=dp(r.toInt()).toFloat();cardElevation=dp(3).toFloat();setCardBackgroundColor(Color.parseColor(bg));strokeWidth=dp(1);strokeColor=Color.parseColor(STROKE)}
+    private fun pill(s:String,color:String)=txt(s,10.5f,color,true).apply{background=android.graphics.drawable.GradientDrawable().apply{setColor(Color.parseColor("#18232E"));cornerRadius=dp(10).toFloat()};setPadding(dp(8),dp(5),dp(8),dp(5))}
+    private fun button(s:String,bg:String,dark:Boolean)=MaterialButton(this).apply{text=s;textSize=12.5f;isAllCaps=false;cornerRadius=dp(15);insetTop=0;insetBottom=0;minHeight=dp(50);backgroundTintList=android.content.res.ColorStateList.valueOf(Color.parseColor(bg));setTextColor(Color.parseColor(if(dark)NAVY else TEXT))}
+    private fun stat(t:String,v:String,color:String)=MaterialCardView(this).apply{
+        radius=dp(16).toFloat();cardElevation=dp(2).toFloat();setCardBackgroundColor(Color.parseColor(SURFACE));strokeWidth=dp(1);strokeColor=Color.parseColor(STROKE)
+        addView(LinearLayout(this@MainActivityPro).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(10),dp(10),dp(10));addView(txt(t,10.5f,MUTED,true),match());addView(txt(v,19f,color,true),match().apply{topMargin=dp(5)})})
+    }
+    private fun empty(s:String)=card(SURFACE,17f).apply{addView(txt(s,12f,MUTED,false).apply{gravity=Gravity.CENTER;setPadding(dp(12),dp(18),dp(12),dp(18))})}
+    private fun match()=LinearLayout.LayoutParams(-1,-2);private fun wrap()=LinearLayout.LayoutParams(-2,-2)
+    private fun lp(w:Int,h:Int)=LinearLayout.LayoutParams(dp(w),dp(h))
+    private fun weight()=LinearLayout.LayoutParams(0,dp(50),1f);private fun weightCard()=LinearLayout.LayoutParams(0,-2,1f)
+    private fun dp(v:Int)=(v*resources.displayMetrics.density+0.5f).toInt()
+    private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
+}
+
+private data class StaffResult(val ok:Boolean,val body:JSONObject=JSONObject(),val error:String="")
+private object StaffClient{
+    private const val C=10000;private const val R=20000
+    fun deviceId(c:Context)=Settings.Secure.getString(c.contentResolver,Settings.Secure.ANDROID_ID)?.takeIf{it.isNotBlank()}?:UUID.nameUUIDFromBytes((c.packageName+android.os.Build.MODEL).toByteArray()).toString()
+    fun login(c:Context,u:String,p:String):StaffResult{
+        val j=JSONObject().apply{put("username",u);put("password",p);put("device_id",deviceId(c))}
+        val r=req(c,"POST","/api/mobile/login",j.toString(),false);if(r.ok)SecureConfig.setToken(c,r.body.optString("token"));return r
+    }
+    fun dashboard(c:Context)=req(c,"GET","/api/mobile/dashboard",null,true)
+    fun approve(c:Context,id:String)=req(c,"POST","/api/mobile/operations/$id/approve","{}",true)
+    fun reject(c:Context,id:String,reason:String)=req(c,"POST","/api/mobile/operations/$id/reject",JSONObject().put("reason",reason).toString(),true)
+    private fun req(c:Context,method:String,path:String,body:String?,auth:Boolean):StaffResult{
+        val base=SecureConfig.getServerUrl(c).trimEnd('/')
+        if(base.isBlank())return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
+        val cn=(java.net.URL(base+path).openConnection() as java.net.HttpURLConnection).apply{
+            requestMethod=method;connectTimeout=C;readTimeout=R
+            setRequestProperty("Accept","application/json")
+            if(auth){setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(c));setRequestProperty("X-SuperJet-Device-Id",deviceId(c))}
+            if(body!=null){doOutput=true;setRequestProperty("Content-Type","application/json; charset=UTF-8")}
+        }
+        return try{
+            if(body!=null)cn.outputStream.use{it.write(body.toByteArray(Charsets.UTF_8))}
+            val code=cn.responseCode;val st=if(code in 200..299)cn.inputStream else cn.errorStream
+            val raw=if(st!=null)java.io.BufferedReader(java.io.InputStreamReader(st,Charsets.UTF_8)).use{it.readText()} else ""
+            val jo=runCatching{JSONObject(raw)}.getOrElse{JSONObject()}
+            if(code in 200..299)StaffResult(true,jo) else StaffResult(false,jo,"HTTP_$code:"+jo.optString("error",raw))
+        }catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"network error"))}finally{cn.disconnect()}
+    }
+}
