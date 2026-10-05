@@ -32,6 +32,7 @@ object NotificationStore {
 
     @Synchronized
     fun add(context: Context, item: NotificationItem) {
+        if (!item.isPaymentNotification || !isAllowedProvider(item.provider)) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val old = JSONArray(prefs.getString(KEY, "[]"))
         for (i in 0 until old.length()) {
@@ -71,6 +72,7 @@ object NotificationStore {
         val result = mutableListOf<NotificationItem>()
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
+            if (!o.optBoolean("isPaymentNotification", false) || !isAllowedProvider(o.optString("provider"))) continue
             result.add(
                 NotificationItem(
                     eventId = o.optString("eventId"),
@@ -100,6 +102,10 @@ object NotificationStore {
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().remove(KEY).apply()
+    }
+
+    private fun isAllowedProvider(provider: String): Boolean {
+        return provider.uppercase() in setOf("VODAFONE_CASH","ORANGE_CASH","ETISALAT_CASH","WE_PAY","INSTAPAY")
     }
 
     private fun toJson(item: NotificationItem): JSONObject {
