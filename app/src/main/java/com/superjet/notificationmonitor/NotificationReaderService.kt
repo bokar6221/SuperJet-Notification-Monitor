@@ -57,11 +57,16 @@ class NotificationReaderService : NotificationListenerService() {
             isPaymentNotification = parsed.isPaymentNotification
         )
 
+        if (!added.isPaymentNotification || !allowedProvider(added.provider)) return
         NotificationStore.add(this, added)
 
         if (added.isPaymentNotification) {
             NotificationSyncScheduler.enqueue(this)
         }
+    }
+
+    private fun allowedProvider(provider: String): Boolean {
+        return provider.uppercase() in setOf("VODAFONE_CASH","ORANGE_CASH","ETISALAT_CASH","WE_PAY","INSTAPAY")
     }
 
     private fun sha256(value: String): String {
