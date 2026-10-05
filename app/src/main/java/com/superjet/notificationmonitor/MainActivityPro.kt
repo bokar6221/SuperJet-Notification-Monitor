@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
@@ -383,6 +384,37 @@ object StaffClient{
     fun reject(c:Context,id:String,reason:String)=req(c,"POST","/api/mobile/operations/$id/reject",JSONObject().put("reason",reason).toString(),true)
     fun chat(c:Context,operationId:String)=req(c,"GET","/api/mobile/operations/"+operationId+"/chat",null,true)
     fun sendChat(c:Context,operationId:String,message:String)=req(c,"POST","/api/mobile/operations/"+operationId+"/chat",JSONObject().put("message",message).toString(),true)
+    fun sendChatMedia(c:Context,operationId:String,message:String,uri:Uri):StaffResult{
+        val base=SecureConfig.getServerUrl(c).trimEnd('/')
+        if(base.isBlank()) return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
+        val boundary="----SuperJetBoundary"+UUID.randomUUID()
+        val cn=(java.net.URL(base+"/api/mobile/operations/"+operationId+"/chat").openConnection() as java.net.HttpURLConnection).apply{
+            requestMethod="POST";connectTimeout=C;readTimeout=R;doOutput=true
+            setRequestProperty("Accept","application/json")
+            setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(c))
+            setRequestProperty("X-SuperJet-Device-Id",deviceId(c))
+            setRequestProperty("Content-Type","multipart/form-data; boundary="+boundary)
+        }
+        return try{
+            java.io.DataOutputStream(cn.outputStream).use{out->
+                if(message.isNotBlank()){
+                    out.writeBytes("--"+boundary+"\r\n")
+                    out.writeBytes("Content-Disposition: form-data; name=\"message\"\r\n\r\n")
+                    out.write(message.toByteArray(Charsets.UTF_8));out.writeBytes("\r\n")
+                }
+                out.writeBytes("--"+boundary+"\r\n")
+                out.writeBytes("Content-Disposition: form-data; name=\"media\"; filename=\"chat_image.jpg\"\r\n")
+                out.writeBytes("Content-Type: image/jpeg\r\n\r\n")
+                c.contentResolver.openInputStream(uri)?.use{it.copyTo(out)} ?: return StaffResult(false,error="MEDIA_READ_FAILED")
+                out.writeBytes("\r\n--"+boundary+"--\r\n")
+            }
+            val code=cn.responseCode
+            val st=if(code in 200..299)cn.inputStream else cn.errorStream
+            val raw=if(st!=null)java.io.BufferedReader(java.io.InputStreamReader(st,Charsets.UTF_8)).use{it.readText()} else ""
+            val jo=runCatching{JSONObject(raw)}.getOrElse{JSONObject()}
+            if(code in 200..299) StaffResult(true,jo) else StaffResult(false,jo,"HTTP_"+code+":"+jo.optString("error",raw))
+        }catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"upload error"))}finally{cn.disconnect()}
+    }
     fun search(c:Context,q:String)=req(c,"GET","/api/mobile/search?q="+java.net.URLEncoder.encode(q,"UTF-8"),null,true)
     fun pollChatNotifications(c:Context,sinceId:Long)=req(c,"GET","/api/mobile/chat/notifications?since_id="+sinceId+"&wait=20",null,true)
     private fun req(c:Context,method:String,path:String,body:String?,auth:Boolean):StaffResult{
