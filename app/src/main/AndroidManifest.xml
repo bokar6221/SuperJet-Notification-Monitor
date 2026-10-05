@@ -13,7 +13,7 @@
         android:allowBackup="false"
         android:supportsRtl="true">
         <activity
-            android:name=".MainActivityPro"
+            android:name=".StaffTabsActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
