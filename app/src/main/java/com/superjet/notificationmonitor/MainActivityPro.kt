@@ -384,28 +384,7 @@ object StaffClient{
     fun reject(c:Context,id:String,reason:String)=req(c,"POST","/api/mobile/operations/$id/reject",JSONObject().put("reason",reason).toString(),true)
     fun chat(c:Context,operationId:String)=req(c,"GET","/api/mobile/operations/"+operationId+"/chat",null,true)
     fun sendChat(c:Context,operationId:String,message:String):StaffResult{
-        val base=SecureConfig.getServerUrl(c).trimEnd('/')
-        if(base.isBlank()) return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
-        val boundary="----SuperJetText"+UUID.randomUUID()
-        val cn=(java.net.URL(base+"/api/mobile/operations/"+operationId+"/chat").openConnection() as java.net.HttpURLConnection).apply{
-            requestMethod="POST";connectTimeout=C;readTimeout=R;doOutput=true
-            setRequestProperty("Accept","application/json")
-            setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(c))
-            setRequestProperty("X-SuperJet-Device-Id",deviceId(c))
-            setRequestProperty("Content-Type","multipart/form-data; boundary="+boundary)
-        }
-        return try{
-            java.io.DataOutputStream(cn.outputStream).use{out->
-                out.writeBytes("--"+boundary+"\\r\\n")
-                out.writeBytes("Content-Disposition: form-data; name=\"message\"\\r\\n\\r\\n")
-                out.write(message.toByteArray(Charsets.UTF_8))
-                out.writeBytes("\\r\\n--"+boundary+"--\\r\\n")
-            }
-            val code=cn.responseCode;val st=if(code in 200..299)cn.inputStream else cn.errorStream
-            val raw=if(st!=null)java.io.BufferedReader(java.io.InputStreamReader(st,Charsets.UTF_8)).use{it.readText()} else ""
-            val jo=runCatching{JSONObject(raw)}.getOrElse{JSONObject()}
-            if(code in 200..299) StaffResult(true,jo) else StaffResult(false,jo,"HTTP_"+code+":"+jo.optString("error",raw))
-        }catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"network error"))}finally{cn.disconnect()}
+        return req(c,"POST","/api/mobile/operations/"+operationId+"/chat",JSONObject().put("message",message).toString(),true)
     }
     fun sendChatMedia(c:Context,operationId:String,message:String,uri:Uri):StaffResult{
         val base=SecureConfig.getServerUrl(c).trimEnd('/')

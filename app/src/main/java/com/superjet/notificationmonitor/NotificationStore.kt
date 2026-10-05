@@ -99,6 +99,13 @@ object NotificationStore {
         return result
     }
 
+    @Synchronized fun pruneNonPayment(context: Context) {
+        val prefs=context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val old=JSONArray(prefs.getString(KEY,"[]"));val arr=JSONArray()
+        for(i in 0 until old.length()){val o=old.getJSONObject(i);if(o.optBoolean("isPaymentNotification",false)&&isAllowedProvider(o.optString("provider")))arr.put(o)}
+        prefs.edit().putString(KEY,arr.toString()).apply()
+    }
+
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().remove(KEY).apply()

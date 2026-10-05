@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.5.1 FINAL PRO
+name: Build SuperJet Staff v3.5.2 FINAL PRO
 
 on:
   workflow_dispatch:
@@ -23,16 +23,16 @@ jobs:
       - name: Build APK
         run: gradle :app:assembleDebug --no-daemon
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.5.1_FINAL_PRO.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.5.2_FINAL_PRO.apk
       - name: Package source
         run: |
-          zip -r SuperJet_Staff_v3.5.1_FINAL_PRO_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.5.2_FINAL_PRO_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v3.5.1_FINAL_PRO
+          name: SuperJet_Staff_v3.5.2_FINAL_PRO
           path: |
-            SuperJet_Staff_v3.5.1_FINAL_PRO.apk
-            SuperJet_Staff_v3.5.1_FINAL_PRO_SOURCE.zip
+            SuperJet_Staff_v3.5.2_FINAL_PRO.apk
+            SuperJet_Staff_v3.5.2_FINAL_PRO_SOURCE.zip
 
 # V3.4 final tabs compile trigger
