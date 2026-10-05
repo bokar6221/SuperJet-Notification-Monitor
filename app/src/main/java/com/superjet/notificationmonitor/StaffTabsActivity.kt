@@ -58,7 +58,7 @@ class StaffTabsActivity : AppCompatActivity() {
     private var selectedImageLabel:TextView?=null
     private val imagePicker=registerForActivityResult(ActivityResultContracts.GetContent()){u->selectedImage=u;selectedImageLabel?.text=if(u!=null)"📷 صورة مرفقة" else ""}
 
-    override fun onCreate(b:Bundle?){super.onCreate(b);window.statusBarColor=Color.parseColor(NAVY);window.navigationBarColor=Color.parseColor(NAVY);root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))};setContentView(root);if(SecureConfig.getToken(this).isBlank())showLogin()else{showMain();startBgService();requestNotif()}}
+    override fun onCreate(b:Bundle?){super.onCreate(b);NotificationStore.pruneNonPayment(this);window.statusBarColor=Color.parseColor(NAVY);window.navigationBarColor=Color.parseColor(NAVY);root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))};setContentView(root);if(SecureConfig.getToken(this).isBlank())showLogin()else{showMain();startBgService();requestNotif()}}
 
     override fun onResume(){super.onResume();if(SecureConfig.getToken(this).isNotBlank()&&content!=null)loadTab()}
     override fun onNewIntent(i:Intent?){super.onNewIntent(i);setIntent(i);if(SecureConfig.getToken(this).isNotBlank())loadTab()}
