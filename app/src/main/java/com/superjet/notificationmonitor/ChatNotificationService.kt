@@ -99,7 +99,7 @@ class ChatNotificationService : Service() {
 
     private fun showMessageNotification(customer: String, booking: String, message: String) {
         val manager = getSystemService(NotificationManager::class.java)
-        val intent = Intent(this, MainActivityPro::class.java).apply {
+        val intent = Intent(this, StaffTabsActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("open_booking_id", booking)
         }
