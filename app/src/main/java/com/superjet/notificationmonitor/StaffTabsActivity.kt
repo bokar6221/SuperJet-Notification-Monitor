@@ -106,7 +106,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val sync=button("مزامنة الآن",GOLD,true);val settings=button("صلاحية الإشعارات",BLUE,false);actions.addView(sync,weight());actions.addView(settings,weight().apply{marginStart=dp(7)});content?.addView(actions,match().apply{bottomMargin=dp(12)})
         sync.setOnClickListener{syncNotifications()};settings.setOnClickListener{startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))}
         lifecycleScope.launch{
-            val r=withContext(Dispatchers.IO){StaffClient.notifications(this@StaffTabsActivity)}
+            val r=withContext(Dispatchers.IO){apiGet("/api/mobile/notifications")}
             val local=NotificationStore.all(this@StaffTabsActivity)
             content?.addView(summary("على الجهاز",local.size.toString(),GREEN),match().apply{bottomMargin=dp(8)})
             if(!r.ok){content?.addView(empty("تعذر قراءة قائمة المزامنة من الخادم: "+r.error));renderLocalNotifications(local);return@launch}
@@ -139,7 +139,7 @@ class StaffTabsActivity : AppCompatActivity() {
     private fun loadChats(){
         clear();content?.addView(title("محادثات العملاء","كل المحادثات الجارية والمنتهية. الرقم الأحمر هو عدد الرسائل غير المقروءة."))
         lifecycleScope.launch{
-            val r=withContext(Dispatchers.IO){StaffClient.chats(this@StaffTabsActivity)}
+            val r=withContext(Dispatchers.IO){apiGet("/api/mobile/chats")}
             if(!r.ok){content?.addView(empty(r.error));return@launch}
             val a=r.body.optJSONArray("chats")?:r.body.optJSONArray("items")?:JSONArray()
             if(a.length()==0){content?.addView(empty("لا توجد محادثات حاليًا."));return@launch}
@@ -154,7 +154,7 @@ class StaffTabsActivity : AppCompatActivity() {
     private fun loadPayments(){
         clear();content?.addView(title("المدفوعات","المعلقة والناجحة والمرفوضة. الإجمالي المالي يحسب الناجح فقط."))
         lifecycleScope.launch{
-            val r=withContext(Dispatchers.IO){StaffClient.payments(this@StaffTabsActivity)}
+            val r=withContext(Dispatchers.IO){apiGet("/api/mobile/payments")}
             if(!r.ok){content?.addView(empty(r.error));return@launch}
             val s=r.body.optJSONObject("summary")?:JSONObject()
             val totals=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL}
@@ -196,14 +196,54 @@ class StaffTabsActivity : AppCompatActivity() {
         val dlg=AlertDialog.Builder(this).setTitle("محادثة $bookingId").setView(box).setNegativeButton("إغلاق",null).create()
         choose.setOnClickListener{imagePicker.launch("image/*")}
         fun reload(){lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.chat(this@StaffTabsActivity,operationId)};if(!r.ok)return@launch;list.removeAllViews();val a=r.body.optJSONArray("messages")?:JSONArray();for(i in 0 until a.length()){val m=a.optJSONObject(i)?:continue;val own=m.optString("sender_type")=="staff";val t=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;gravity=if(own)Gravity.END else Gravity.START;setPadding(dp(4),dp(3),dp(4),dp(3))};val bubble=card(if(own)"#1B3550" else "#162332",14f);val inner=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(8))};inner.addView(txt(if(own)"أنت" else "العميل",10f,if(own)GOLD else GREEN,true),match());inner.addView(txt(m.optString("message"),12.5f,TEXT,false),match());if(m.optString("media_url").isNotBlank()){val im=ImageView(this@StaffTabsActivity).apply{adjustViewBounds=true;maxHeight=dp(220)};inner.addView(im,match().apply{topMargin=dp(6)});lifecycleScope.launch{val bm=withContext(Dispatchers.IO){loadImage(m.optString("media_url"))};if(bm!=null)im.setImageBitmap(bm)}};bubble.addView(inner);t.addView(bubble,wrap());list.addView(t)};scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}}
-        send.setOnClickListener{val msg=input.text.toString().trim();val img=selectedImage;if(msg.isBlank()&&img==null){toast("اكتب رسالة أو اختر صورة.");return@setOnClickListener};send.isEnabled=false;lifecycleScope.launch{val r=withContext(Dispatchers.IO){if(img!=null)StaffClient.sendChatMedia(this@StaffTabsActivity,operationId,msg,img)else StaffClient.sendChat(this@StaffTabsActivity,operationId,msg)};send.isEnabled=true;if(r.ok){input.setText("");selectedImage=null;selectedImageLabel?.text="";reload()}else toast(r.error)}}
+        send.setOnClickListener{val msg=input.text.toString().trim();val img=selectedImage;if(msg.isBlank()&&img==null){toast("اكتب رسالة أو اختر صورة.");return@setOnClickListener};send.isEnabled=false;lifecycleScope.launch{val r=withContext(Dispatchers.IO){if(img!=null)apiPostMedia("/api/mobile/operations/${operationId}/chat",msg,img)else StaffClient.sendChat(this@StaffTabsActivity,operationId,msg)};send.isEnabled=true;if(r.ok){input.setText("");selectedImage=null;selectedImageLabel?.text="";reload()}else toast(r.error)}}
         dlg.setOnShowListener{reload();lifecycleScope.launch{repeat(8){delay(2500);if(dlg.isShowing)reload()}}};dlg.show()
+    }
+
+    private fun apiGet(path:String):StaffResult{
+        val base=SecureConfig.getServerUrl(this).trimEnd('/')
+        if(base.isBlank()) return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
+        val cn=(URL(base+path).openConnection() as HttpURLConnection).apply{
+            requestMethod="GET";connectTimeout=12000;readTimeout=25000
+            setRequestProperty("Accept","application/json")
+            setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity))
+            setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))
+        }
+        return try{parseLocal(cn)}catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"network error"))}finally{cn.disconnect()}
+    }
+    private fun apiPostMedia(path:String,msg:String,uri:Uri):StaffResult{
+        val base=SecureConfig.getServerUrl(this).trimEnd('/')
+        if(base.isBlank()) return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
+        val boundary="----SJ$"+"{UUID.randomUUID()}"
+        val cn=(URL(base+path).openConnection() as HttpURLConnection).apply{
+            requestMethod="POST";connectTimeout=12000;readTimeout=30000;doOutput=true
+            setRequestProperty("Accept","application/json")
+            setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity))
+            setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))
+            setRequestProperty("Content-Type","multipart/form-data; boundary=$"+"{boundary}")
+        }
+        return try{
+            DataOutputStream(cn.outputStream).use{out->
+                if(msg.isNotBlank()){out.writeBytes("--$"+"{boundary}\r\nContent-Disposition: form-data; name=\"message\"\r\n\r\n");out.write(msg.toByteArray(Charsets.UTF_8));out.writeBytes("\r\n")}
+                out.writeBytes("--$"+"{boundary}\r\nContent-Disposition: form-data; name=\"media\"; filename=\"chat_image.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n")
+                contentResolver.openInputStream(uri)?.use{it.copyTo(out)}?:return StaffResult(false,error="MEDIA_READ_FAILED")
+                out.writeBytes("\r\n--$"+"{boundary}--\r\n")
+            }
+            parseLocal(cn)
+        }catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"upload error"))}finally{cn.disconnect()}
+    }
+    private fun parseLocal(cn:HttpURLConnection):StaffResult{
+        val code=cn.responseCode
+        val st=if(code in 200..299)cn.inputStream else cn.errorStream
+        val raw=if(st!=null)BufferedReader(InputStreamReader(st,Charsets.UTF_8)).use{it.readText()} else ""
+        val jo=runCatching{JSONObject(raw)}.getOrElse{JSONObject()}
+        return if(code in 200..299)StaffResult(true,jo) else StaffResult(false,jo,"HTTP_$"+"{code}:"+jo.optString("error",raw))
     }
 
     private fun loadImage(path:String):Bitmap?=runCatching{
         val base=SecureConfig.getServerUrl(this).trimEnd('/')
         val u=if(path.startsWith("http"))path else base+path
-        val cn=(URL(u).openConnection() as HttpURLConnection).apply{connectTimeout=12000;readTimeout=25000;setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this));setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this))}
+        val cn=(URL(u).openConnection() as HttpURLConnection).apply{connectTimeout=12000;readTimeout=25000;setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this));setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))}
         val bm=cn.inputStream.use{BitmapFactory.decodeStream(it)};cn.disconnect();bm
     }.getOrNull()
 
