@@ -243,7 +243,7 @@ class StaffTabsActivity : AppCompatActivity() {
     private fun loadImage(path:String):Bitmap?=runCatching{
         val base=SecureConfig.getServerUrl(this).trimEnd('/')
         val u=if(path.startsWith("http"))path else base+path
-        val cn=(URL(u).openConnection() as HttpURLConnection).apply{connectTimeout=12000;readTimeout=25000;setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this));setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))}
+        val cn=(URL(u).openConnection() as HttpURLConnection).apply{connectTimeout=12000;readTimeout=25000;setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity));setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))}
         val bm=cn.inputStream.use{BitmapFactory.decodeStream(it)};cn.disconnect();bm
     }.getOrNull()
 
