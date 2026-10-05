@@ -93,18 +93,19 @@ class StaffTabsActivity : AppCompatActivity() {
         val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};h.addView(txt("SuperJet Staff",20f,TEXT,true),match());statusView=txt("متصل",10.5f,MUTED,false);h.addView(statusView,match());head.addView(h,LinearLayout.LayoutParams(0,-2,1f))
         val out=button("خروج",RED,false);head.addView(out,wrap());out.setOnClickListener{SecureConfig.clearToken(this);stopBgService();showLogin()};root.addView(head,match())
         val bar=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(6),dp(8),dp(8));setBackgroundColor(Color.parseColor("#0B1622"))}
-        listOf("🔔 الإشعارات","💬 المحادثات","💰 المدفوعات").forEachIndexed{i,t->val b=button(t,if(i==0)GOLD else SURFACE,i==0);b.textSize=11.5f;tabs.add(b);bar.addView(b,LinearLayout.LayoutParams(0,dp(52),1f).apply{if(i>0)marginStart=dp(6)});b.setOnClickListener{selectTab(i)}};root.addView(bar,match())
+        listOf("🔔 الإشعارات","💬 المحادثات","📋 عمليات الحجز","💰 المدفوعات").forEachIndexed{i,t->val b=button(t,if(i==0)GOLD else SURFACE,i==0);b.textSize=11.5f;tabs.add(b);bar.addView(b,LinearLayout.LayoutParams(0,dp(52),1f).apply{if(i>0)marginStart=dp(6)});b.setOnClickListener{selectTab(i)}};root.addView(bar,match())
         content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(20))};root.addView(ScrollView(this).apply{isFillViewport=true;addView(content)},LinearLayout.LayoutParams(-1,0,1f));selectTab(currentTab)
     }
 
     private fun selectTab(i:Int){currentTab=i;tabs.forEachIndexed{n,b->val on=n==i;b.backgroundTintList=android.content.res.ColorStateList.valueOf(Color.parseColor(if(on)GOLD else SURFACE));b.setTextColor(Color.parseColor(if(on)NAVY else TEXT))};loadTab()}
-    private fun loadTab(){when(currentTab){0->loadNotifications();1->loadChats();2->loadPayments()}}
+    private fun loadTab(){when(currentTab){0->loadNotifications();1->loadChats();2->loadBookingOperations();3->loadPayments()}}
 
     private fun loadNotifications(){
         clear();content?.addView(title("الإشعارات والمزامنة","إشعارات الدفع المقروءة من الهاتف وحالة المزامنة مع الخادم."))
         val actions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
-        val sync=button("مزامنة الآن",GOLD,true);val settings=button("صلاحية الإشعارات",BLUE,false);actions.addView(sync,weight());actions.addView(settings,weight().apply{marginStart=dp(7)});content?.addView(actions,match().apply{bottomMargin=dp(12)})
-        sync.setOnClickListener{syncNotifications()};settings.setOnClickListener{startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))}
+        val sync=button("مزامنة الآن",GOLD,true);val settings=button("صلاحية الإشعارات",BLUE,false);val clearBtn=button("مسح سجل الهاتف",RED,false)
+        actions.addView(sync,weight());actions.addView(settings,weight().apply{marginStart=dp(6)});actions.addView(clearBtn,weight().apply{marginStart=dp(6)});content?.addView(actions,match().apply{bottomMargin=dp(12)})
+        sync.setOnClickListener{syncNotifications()};settings.setOnClickListener{startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))};clearBtn.setOnClickListener{clearNotificationHistory()}
         lifecycleScope.launch{
             val r=withContext(Dispatchers.IO){apiGet("/api/mobile/notifications")}
             val local=NotificationStore.all(this@StaffTabsActivity)
@@ -126,6 +127,12 @@ class StaffTabsActivity : AppCompatActivity() {
         addView(txt(s+"\n"+if(amount.isNaN())"المبلغ غير مستخرج" else fmt(amount)+" جنيه"+"\nالمرجع: "+ref.ifBlank{"—"}+"\n"+o.optString("parse_status"),12f,TEXT,false).apply{setPadding(dp(12),dp(10),dp(12),dp(10))})
     }
 
+    private fun clearNotificationHistory(){
+        AlertDialog.Builder(this).setTitle("مسح سجل الإشعارات")
+            .setMessage("سيتم مسح السجل المحفوظ على الهاتف فقط. السجل الموجود على الخادم لا يتم حذفه.")
+            .setPositiveButton("مسح"){_,_->NotificationStore.clear(this);toast("تم مسح سجل إشعارات الهاتف.");loadNotifications()}
+            .setNegativeButton("إلغاء",null).show()
+    }
     private fun syncNotifications(){
         if(busy)return;busy=true
         lifecycleScope.launch{
@@ -151,6 +158,51 @@ class StaffTabsActivity : AppCompatActivity() {
         }
     }
 
+    private fun loadBookingOperations(){
+        clear();content?.addView(title("عمليات الحجز","الحالية التي تحتاج قرارًا والمنتهية بالنجاح أو الرفض."))
+        lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){apiGet("/api/mobile/booking-operations")}
+            if(!r.ok){content?.addView(empty("تعذر تحميل عمليات الحجز: "+r.error));return@launch}
+            val current=r.body.optJSONArray("current")?:JSONArray()
+            val completed=r.body.optJSONArray("completed")?:JSONArray()
+            content?.addView(txt("الحالية — تحتاج تأكيد أو رفض (${current.length()})",16f,TEXT,true),match().apply{bottomMargin=dp(7)})
+            if(current.length()==0) content?.addView(empty("لا توجد عمليات حجز تحتاج قرارًا حاليًا."),match().apply{bottomMargin=dp(10)})
+            else for(i in 0 until current.length()) content?.addView(bookingOperationCard(current.optJSONObject(i)?:continue,false),match().apply{bottomMargin=dp(8)})
+            content?.addView(txt("المنتهية (${completed.length()})",16f,TEXT,true),match().apply{topMargin=dp(8);bottomMargin=dp(7)})
+            if(completed.length()==0) content?.addView(empty("لا توجد عمليات منتهية."),match())
+            else for(i in 0 until completed.length()) content?.addView(bookingOperationCard(completed.optJSONObject(i)?:continue,true),match().apply{bottomMargin=dp(8)})
+        }
+    }
+
+    private fun bookingOperationCard(o:JSONObject,terminal:Boolean)=card(SURFACE,17f).apply{
+        val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"}
+        val b=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(11),dp(12),dp(11))}
+        val top=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+        top.addView(txt(o.optString("booking_id").ifBlank{"حجز"},14f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f))
+        top.addView(pill(statusText(st),statusColor(st)),wrap());b.addView(top)
+        b.addView(txt(o.optString("customer_name").ifBlank{"عميل"}+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        val row=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
+        val chat=button("محادثة 💬",BLUE,false);row.addView(chat,weight());chat.setOnClickListener{showChat(id,o.optString("booking_id"))}
+        if(!terminal){
+            val yes=button("تأكيد ✓",GREEN,false);val no=button("رفض ×",RED,false)
+            row.addView(yes,weight().apply{marginStart=dp(6)});row.addView(no,weight().apply{marginStart=dp(6)})
+            yes.setOnClickListener{approveFromOperations(id)};no.setOnClickListener{rejectFromOperations(id)}
+        } else b.addView(txt("العملية نهائية — الأزرار الإجرائية مخفية، والمحادثة فقط متاحة.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        b.addView(row,match().apply{topMargin=dp(8)});addView(b)
+    }
+
+    private fun approveFromOperations(id:String){
+        lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.approve(this@StaffTabsActivity,id)}
+            toast(if(r.ok)"تم الاعتماد وإصدار التذكرة في «تذكرتي»." else r.error);if(r.ok)loadBookingOperations()
+        }
+    }
+    private fun rejectFromOperations(id:String){
+        val e=EditText(this).apply{hint="سبب الرفض";setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED));minLines=2}
+        AlertDialog.Builder(this).setTitle("رفض الحجز").setView(e).setPositiveButton("رفض"){_,_->lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){StaffClient.reject(this@StaffTabsActivity,id,e.text.toString().ifBlank{"رفض موظف"})}
+            toast(if(r.ok)"تم رفض العملية وحفظها ضمن المنتهية." else r.error);if(r.ok)loadBookingOperations()
+        }}.setNegativeButton("إلغاء",null).show()
+    }
     private fun loadPayments(){
         clear();content?.addView(title("المدفوعات","المعلقة والناجحة والمرفوضة. الإجمالي المالي يحسب الناجح فقط."))
         lifecycleScope.launch{
@@ -196,7 +248,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val dlg=AlertDialog.Builder(this).setTitle("محادثة $bookingId").setView(box).setNegativeButton("إغلاق",null).create()
         choose.setOnClickListener{imagePicker.launch("image/*")}
         fun reload(){lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.chat(this@StaffTabsActivity,operationId)};if(!r.ok)return@launch;list.removeAllViews();val a=r.body.optJSONArray("messages")?:JSONArray();for(i in 0 until a.length()){val m=a.optJSONObject(i)?:continue;val own=m.optString("sender_type")=="staff";val t=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;gravity=if(own)Gravity.END else Gravity.START;setPadding(dp(4),dp(3),dp(4),dp(3))};val bubble=card(if(own)"#1B3550" else "#162332",14f);val inner=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(8))};inner.addView(txt(if(own)"أنت" else "العميل",10f,if(own)GOLD else GREEN,true),match());inner.addView(txt(m.optString("message"),12.5f,TEXT,false),match());if(m.optString("media_url").isNotBlank()){val im=ImageView(this@StaffTabsActivity).apply{adjustViewBounds=true;maxHeight=dp(220)};inner.addView(im,match().apply{topMargin=dp(6)});lifecycleScope.launch{val bm=withContext(Dispatchers.IO){loadImage(m.optString("media_url"))};if(bm!=null)im.setImageBitmap(bm)}};bubble.addView(inner);t.addView(bubble,wrap());list.addView(t)};scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}}
-        send.setOnClickListener{val msg=input.text.toString().trim();val img=selectedImage;if(msg.isBlank()&&img==null){toast("اكتب رسالة أو اختر صورة.");return@setOnClickListener};send.isEnabled=false;lifecycleScope.launch{val r=withContext(Dispatchers.IO){if(img!=null)apiPostMedia("/api/mobile/operations/${operationId}/chat",msg,img)else StaffClient.sendChat(this@StaffTabsActivity,operationId,msg)};send.isEnabled=true;if(r.ok){input.setText("");selectedImage=null;selectedImageLabel?.text="";reload()}else toast(r.error)}}
+        send.setOnClickListener{val msg=input.text.toString().trim();val img=selectedImage;if(msg.isBlank()&&img==null){toast("اكتب رسالة أو اختر صورة.");return@setOnClickListener};send.isEnabled=false;lifecycleScope.launch{val r=withContext(Dispatchers.IO){if(img!=null)StaffClient.sendChatMedia(this@StaffTabsActivity,operationId,msg,img)else StaffClient.sendChat(this@StaffTabsActivity,operationId,msg)};send.isEnabled=true;if(r.ok){input.setText("");selectedImage=null;selectedImageLabel?.text="";reload()}else toast(r.error)}}
         dlg.setOnShowListener{reload();lifecycleScope.launch{repeat(8){delay(2500);if(dlg.isShowing)reload()}}};dlg.show()
     }
 
@@ -210,27 +262,6 @@ class StaffTabsActivity : AppCompatActivity() {
             setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))
         }
         return try{parseLocal(cn)}catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"network error"))}finally{cn.disconnect()}
-    }
-    private fun apiPostMedia(path:String,msg:String,uri:Uri):StaffResult{
-        val base=SecureConfig.getServerUrl(this).trimEnd('/')
-        if(base.isBlank()) return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
-        val boundary="----SJ$"+"{UUID.randomUUID()}"
-        val cn=(URL(base+path).openConnection() as HttpURLConnection).apply{
-            requestMethod="POST";connectTimeout=12000;readTimeout=30000;doOutput=true
-            setRequestProperty("Accept","application/json")
-            setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity))
-            setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))
-            setRequestProperty("Content-Type","multipart/form-data; boundary=$"+"{boundary}")
-        }
-        return try{
-            DataOutputStream(cn.outputStream).use{out->
-                if(msg.isNotBlank()){out.writeBytes("--$"+"{boundary}\r\nContent-Disposition: form-data; name=\"message\"\r\n\r\n");out.write(msg.toByteArray(Charsets.UTF_8));out.writeBytes("\r\n")}
-                out.writeBytes("--$"+"{boundary}\r\nContent-Disposition: form-data; name=\"media\"; filename=\"chat_image.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n")
-                contentResolver.openInputStream(uri)?.use{it.copyTo(out)}?:return StaffResult(false,error="MEDIA_READ_FAILED")
-                out.writeBytes("\r\n--$"+"{boundary}--\r\n")
-            }
-            parseLocal(cn)
-        }catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"upload error"))}finally{cn.disconnect()}
     }
     private fun parseLocal(cn:HttpURLConnection):StaffResult{
         val code=cn.responseCode
