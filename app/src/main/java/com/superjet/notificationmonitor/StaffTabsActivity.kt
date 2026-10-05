@@ -92,8 +92,9 @@ class StaffTabsActivity : AppCompatActivity() {
         head.addView(ImageView(this).apply{setImageResource(R.drawable.superjet_logo);scaleType=ImageView.ScaleType.CENTER_INSIDE},lp(44,44).apply{marginEnd=dp(8)})
         val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};h.addView(txt("SuperJet Staff",20f,TEXT,true),match());statusView=txt("متصل",10.5f,MUTED,false);h.addView(statusView,match());head.addView(h,LinearLayout.LayoutParams(0,-2,1f))
         val out=button("خروج",RED,false);head.addView(out,wrap());out.setOnClickListener{SecureConfig.clearToken(this);stopBgService();showLogin()};root.addView(head,match())
-        val bar=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(6),dp(8),dp(8));setBackgroundColor(Color.parseColor("#0B1622"))}
-        listOf("🔔 الإشعارات","💬 المحادثات","📋 عمليات الحجز","💰 المدفوعات").forEachIndexed{i,t->val b=button(t,if(i==0)GOLD else SURFACE,i==0);b.textSize=11.5f;tabs.add(b);bar.addView(b,LinearLayout.LayoutParams(0,dp(52),1f).apply{if(i>0)marginStart=dp(6)});b.setOnClickListener{selectTab(i)}};root.addView(bar,match())
+        val tabScroll=HorizontalScrollView(this).apply{isHorizontalScrollBarEnabled=false;setBackgroundColor(Color.parseColor("#0B1622"))}
+        val bar=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(7),dp(8),dp(8))}
+        listOf("🔔 الإشعارات","💬 المحادثات","📋 عمليات الحجز","💰 المدفوعات").forEachIndexed{i,t->val b=button(t,if(i==0)GOLD else SURFACE,i==0);b.textSize=12f;minTabWidth(b);tabs.add(b);bar.addView(b,LinearLayout.LayoutParams(dp(118),dp(54)).apply{if(i>0)marginStart=dp(7)});b.setOnClickListener{selectTab(i)}};tabScroll.addView(bar);root.addView(tabScroll,match())
         content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(20))};root.addView(ScrollView(this).apply{isFillViewport=true;addView(content)},LinearLayout.LayoutParams(-1,0,1f));selectTab(currentTab)
     }
 
@@ -221,16 +222,52 @@ class StaffTabsActivity : AppCompatActivity() {
 
     private fun paymentCard(o:JSONObject)=card(SURFACE,17f).apply{
         val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val terminal=st=="TICKET_READY"||st=="PAYMENT_REJECTED"
+        val match=o.optJSONObject("match")?:JSONObject();val ms=match.optString("status").ifBlank{"UNMATCHED"}
+        val matchOk=ms=="MATCHED";val matchText=if(matchOk)"✅ مطابقة" else if(ms=="PARTIAL_MATCH")"⚠️ مطابقة جزئية" else "❌ غير مطابقة"
+        val matchColor=if(matchOk)GREEN else if(ms=="PARTIAL_MATCH")ORANGE else RED
         val body=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(11),dp(12),dp(11))}
         val row=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         row.addView(txt(o.optString("booking_id").ifBlank{"عملية دفع"},14f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f));row.addView(pill(statusText(st),statusColor(st)),wrap());body.addView(row)
-        body.addView(txt(o.optString("customer_name")+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه\n"+o.optString("payment_match_status").ifBlank{"تفاصيل المطابقة محفوظة"},11.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        body.addView(txt(o.optString("customer_name")+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        val mr=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(0,dp(7),0,0)}
+        mr.addView(txt("نتيجة المطابقة",11f,MUTED,true),LinearLayout.LayoutParams(0,-2,1f))
+        mr.addView(txt(matchText,13f,matchColor,true),wrap())
+        val detailBtn=button("تفاصيل",BLUE,false);mr.addView(detailBtn,wrap().apply{marginStart=dp(8)});body.addView(mr)
+        detailBtn.setOnClickListener{showPaymentDetails(o)}
         val buttons=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
         val chat=button("محادثة 💬",BLUE,false);buttons.addView(chat,weight());chat.setOnClickListener{showChat(id,o.optString("booking_id"))}
         if(!terminal){
             val yes=button("تأكيد ✓",GREEN,false);val no=button("رفض ×",RED,false);buttons.addView(yes,weight().apply{marginStart=dp(6)});buttons.addView(no,weight().apply{marginStart=dp(6)});yes.setOnClickListener{approve(id)};no.setOnClickListener{reject(id)}
         } else body.addView(txt("العملية نهائية — تم إخفاء التأكيد والرفض.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
         body.addView(buttons,match().apply{topMargin=dp(8)});addView(body)
+    }
+
+    private fun showPaymentDetails(o:JSONObject){
+        val m=o.optJSONObject("match")?:JSONObject();val rec=o.optJSONObject("reconciliation")?:JSONObject();val v=o.optJSONObject("payment_vision")?:rec.optJSONObject("vision")?:JSONObject()
+        val checks=m.optJSONObject("checks")?:runCatching{JSONObject(m.optString("checks_json","{}"))}.getOrElse{JSONObject()}
+        fun ck(k:String,label:String)=label+": "+if(checks.optBoolean(k,false))"✅ مطابق" else "❌ غير مطابق"
+        val tx=o.optJSONArray("android")?:JSONArray();val tx0=if(tx.length()>0)tx.optJSONObject(0)?:JSONObject() else JSONObject()
+        val msg=buildString{
+            append("حالة المطابقة: ").append(m.optString("status").ifBlank{"UNMATCHED"}).append("\n")
+            append("النتيجة: ").append(if(m.optString("status")=="MATCHED")"✅ مطابقة" else if(m.optString("status")=="PARTIAL_MATCH")"⚠️ مطابقة جزئية" else "❌ غير مطابقة").append("\n")
+            append("السبب: ").append(m.optString("reason",rec.optString("reason","—"))).append("\n\n")
+            append(ck("booking_amount","مبلغ الحجز مع الصورة")).append("\n")
+            append(ck("proof_vs_android_amount","مبلغ الصورة مع إشعار الهاتف")).append("\n")
+            append(ck("reference","الرقم المرجعي")).append("\n")
+            append(ck("sender_phone","رقم المرسل")).append("\n")
+            append(ck("payment_account","حساب الاستلام")).append("\n")
+            append(ck("android_present","إشعار الدفع")).append("\n\n")
+            append("Gemini Vision\n")
+            append("المبلغ: ").append(v.optString("amount","غير واضح")).append("\n")
+            append("المرسل: ").append(v.optString("sender_phone",v.optString("sender","غير واضح"))).append("\n")
+            append("المرجع: ").append(v.optString("reference","غير واضح")).append("\n")
+            append("المستلم: ").append(v.optString("recipient_phone",v.optString("recipient","غير واضح"))).append("\n")
+            append("الثقة: ").append(v.optString("confidence","—")).append("\n\n")
+            if(tx0.length()>0){append("إشعار الهاتف\nالمبلغ: ").append(tx0.optString("amount","—")).append("\nالمرجع: ").append(tx0.optString("reference","—")).append("\nالمرسل: ").append(tx0.optString("sender_phone","—")).append("\nالمستلم: ").append(tx0.optString("recipient_account","—")).append("\n")}
+            val missing=checks.keys().asSequence().filter{!checks.optBoolean(it)}.map{it}.toList()
+            if(missing.isNotEmpty())append("\nبيانات ناقصة: ").append(missing.joinToString("، "))
+        }
+        AlertDialog.Builder(this).setTitle("تفاصيل الدفع").setMessage(msg).setPositiveButton("إغلاق",null).show()
     }
 
     private fun approve(id:String){lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.approve(this@StaffTabsActivity,id)};toast(if(r.ok)"تم اعتماد العملية وإصدار التذكرة." else r.error);if(r.ok)loadPayments()}}
@@ -294,5 +331,6 @@ class StaffTabsActivity : AppCompatActivity() {
     private fun card(bg:String,r:Float)=MaterialCardView(this).apply{radius=dp(r.toInt()).toFloat();setCardBackgroundColor(Color.parseColor(bg));strokeWidth=dp(1);strokeColor=Color.parseColor(STROKE)}
     private fun button(s:String,bg:String,dark:Boolean)=MaterialButton(this).apply{text=s;isAllCaps=false;textSize=12f;minHeight=dp(48);cornerRadius=dp(14);insetTop=0;insetBottom=0;backgroundTintList=android.content.res.ColorStateList.valueOf(Color.parseColor(bg));setTextColor(Color.parseColor(if(dark)NAVY else TEXT))}
     private fun empty(s:String)=card(SURFACE,16f).apply{addView(txt(s,12f,MUTED,false).apply{gravity=Gravity.CENTER;textAlignment=View.TEXT_ALIGNMENT_CENTER;setPadding(dp(12),dp(18),dp(12),dp(18))})}
+    private fun minTabWidth(b:MaterialButton){b.minimumWidth=dp(118);b.maxLines=2;b.ellipsize=null}
     private fun match()=LinearLayout.LayoutParams(-1,-2);private fun wrap()=LinearLayout.LayoutParams(-2,-2);private fun weight()=LinearLayout.LayoutParams(0,dp(48),1f);private fun lp(w:Int,h:Int)=LinearLayout.LayoutParams(dp(w),dp(h));private fun dp(v:Int)=(v*resources.displayMetrics.density+0.5f).toInt();private var busy=false;private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
 }
