@@ -13,6 +13,11 @@
         android:allowBackup="false"
         android:supportsRtl="true">
         <activity
+            android:name=".StaffChatActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".StaffTabsActivity"
             android:exported="true">
             <intent-filter>

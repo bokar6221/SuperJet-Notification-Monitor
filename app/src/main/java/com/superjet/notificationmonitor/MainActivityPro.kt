@@ -377,8 +377,17 @@ object StaffClient{
     fun deviceId(c:Context)=Settings.Secure.getString(c.contentResolver,Settings.Secure.ANDROID_ID)?.takeIf{it.isNotBlank()}?:UUID.nameUUIDFromBytes((c.packageName+android.os.Build.MODEL).toByteArray()).toString()
     fun login(c:Context,u:String,p:String):StaffResult{
         val j=JSONObject().apply{put("username",u);put("password",p);put("device_id",deviceId(c))}
-        val r=req(c,"POST","/api/mobile/login",j.toString(),false);if(r.ok)SecureConfig.setToken(c,r.body.optString("token"));return r
+        val r=req(c,"POST","/api/mobile/login",j.toString(),false)
+        if(r.ok){
+            SecureConfig.setToken(c,r.body.optString("token"))
+            val cursor=r.body.optJSONObject("alert_cursor")
+            if(cursor!=null) ChatNotificationService.seedState(c,cursor.optLong("event_id",0L),cursor.optLong("chat_id",0L))
+            else ChatNotificationService.resetState(c)
+        }
+        return r
     }
+    fun logout(c:Context)=req(c,"POST","/api/mobile/logout","{}",true)
+    fun heartbeat(c:Context)=req(c,"POST","/api/mobile/heartbeat","{}",true)
     fun dashboard(c:Context)=req(c,"GET","/api/mobile/dashboard",null,true)
     fun approve(c:Context,id:String)=req(c,"POST","/api/mobile/operations/$id/approve","{}",true)
     fun reject(c:Context,id:String,reason:String)=req(c,"POST","/api/mobile/operations/$id/reject",JSONObject().put("reason",reason).toString(),true)
@@ -418,6 +427,8 @@ object StaffClient{
         }catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"upload error"))}finally{cn.disconnect()}
     }
     fun search(c:Context,q:String)=req(c,"GET","/api/mobile/search?q="+java.net.URLEncoder.encode(q,"UTF-8"),null,true)
+    fun pollStaffAlerts(c:Context,sinceEventId:Long,sinceChatId:Long)=req(c,"GET","/api/mobile/alerts?since_event_id="+sinceEventId+"&since_chat_id="+sinceChatId+"&wait=20",null,true)
+    fun initializeStaffAlerts(c:Context)=req(c,"GET","/api/mobile/alerts?initialize=1&wait=0",null,true)
     fun pollChatNotifications(c:Context,sinceId:Long)=req(c,"GET","/api/mobile/chat/notifications?since_id="+sinceId+"&wait=20",null,true)
     private fun req(c:Context,method:String,path:String,body:String?,auth:Boolean):StaffResult{
         val base=SecureConfig.getServerUrl(c).trimEnd('/')

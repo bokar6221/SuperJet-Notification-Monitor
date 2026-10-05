@@ -58,13 +58,13 @@ class StaffTabsActivity : AppCompatActivity() {
     private var selectedImageLabel:TextView?=null
     private val imagePicker=registerForActivityResult(ActivityResultContracts.GetContent()){u->selectedImage=u;selectedImageLabel?.text=if(u!=null)"📷 صورة مرفقة" else ""}
 
-    override fun onCreate(b:Bundle?){super.onCreate(b);NotificationStore.pruneNonPayment(this);window.statusBarColor=Color.parseColor(NAVY);window.navigationBarColor=Color.parseColor(NAVY);root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))};setContentView(root);if(SecureConfig.getToken(this).isBlank())showLogin()else{showMain();startBgService();requestNotif()}}
+    override fun onCreate(b:Bundle?){super.onCreate(b);NotificationStore.pruneNonPayment(this);window.statusBarColor=Color.parseColor(NAVY);window.navigationBarColor=Color.parseColor(NAVY);root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))};setContentView(root);if(SecureConfig.getToken(this).isBlank())showLogin()else{showMain();startBgService();requestNotif();handleIncomingIntent(intent)}}
 
-    override fun onResume(){super.onResume();if(SecureConfig.getToken(this).isNotBlank()&&content!=null)loadTab()}
-    override fun onNewIntent(i:Intent?){super.onNewIntent(i);setIntent(i);if(SecureConfig.getToken(this).isNotBlank())loadTab()}
+    override fun onResume(){super.onResume();if(SecureConfig.getToken(this).isNotBlank()&&content!=null){loadTab();lifecycleScope.launch{withContext(Dispatchers.IO){StaffClient.heartbeat(this@StaffTabsActivity)}}}}
+    override fun onNewIntent(i:Intent?){super.onNewIntent(i);setIntent(i);if(SecureConfig.getToken(this).isNotBlank()){loadTab();handleIncomingIntent(i)}}
 
     private fun showLogin(){
-        root.removeAllViews()
+        root.removeAllViews();tabs.clear()
         val s=ScrollView(this).apply{isFillViewport=true}
         val p=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER_HORIZONTAL;setPadding(dp(20),dp(28),dp(20),dp(28))}
         p.addView(ImageView(this).apply{setImageResource(R.drawable.superjet_logo);scaleType=ImageView.ScaleType.CENTER_INSIDE},lp(118,118))
@@ -87,10 +87,10 @@ class StaffTabsActivity : AppCompatActivity() {
     }
 
     private fun showMain(){
-        root.removeAllViews()
+        root.removeAllViews();tabs.clear()
         val head=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(Color.parseColor(NAVY))}
         head.addView(ImageView(this).apply{setImageResource(R.drawable.superjet_logo);scaleType=ImageView.ScaleType.CENTER_INSIDE},lp(44,44).apply{marginEnd=dp(8)})
-        val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};h.addView(txt("SuperJet Staff",20f,TEXT,true),match());statusView=txt("متصل",10.5f,MUTED,false);h.addView(statusView,match());head.addView(h,LinearLayout.LayoutParams(0,-2,1f))
+        val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};h.addView(txt("SuperJet Staff",20f,TEXT,true),match());statusView=txt("متصل • خدمة التنبيهات مفعلة",10.5f,GREEN,false);h.addView(statusView,match());head.addView(h,LinearLayout.LayoutParams(0,-2,1f))
         val out=button("خروج",RED,false);head.addView(out,wrap());out.setOnClickListener{SecureConfig.clearToken(this);stopBgService();showLogin()};root.addView(head,match())
         val tabScroll=HorizontalScrollView(this).apply{isHorizontalScrollBarEnabled=false;setBackgroundColor(Color.parseColor("#0B1622"))}
         val bar=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(7),dp(8),dp(8))}
@@ -154,7 +154,7 @@ class StaffTabsActivity : AppCompatActivity() {
             for(i in 0 until a.length()){
                 val o=a.optJSONObject(i)?:continue;val c=card(SURFACE,17f);val row=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(12),dp(10),dp(12),dp(10))}
                 val box=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL};box.addView(txt(o.optString("customer_name").ifBlank{"عميل"},15f,TEXT,true),match());box.addView(txt(o.optString("last_message").ifBlank{o.optString("message").ifBlank{"لا توجد رسالة"}},11.5f,MUTED,false),match());row.addView(box,LinearLayout.LayoutParams(0,-2,1f))
-                val unread=o.optInt("unread_count",o.optInt("unread",0));if(unread>0)row.addView(pill(unread.toString(),RED),wrap());c.addView(row);c.setOnClickListener{showChat(o.optString("operation_id"),o.optString("booking_id"))};content?.addView(c,match().apply{bottomMargin=dp(7)})
+                val unread=o.optInt("unread_count",o.optInt("unread",0));if(unread>0)row.addView(pill(unread.toString(),RED),wrap());c.addView(row);c.setOnClickListener{openChat(o.optString("operation_id"),o.optString("booking_id"))};content?.addView(c,match().apply{bottomMargin=dp(7)})
             }
         }
     }
@@ -183,7 +183,7 @@ class StaffTabsActivity : AppCompatActivity() {
         top.addView(pill(statusText(st),statusColor(st)),wrap());b.addView(top)
         b.addView(txt(o.optString("customer_name").ifBlank{"عميل"}+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
         val row=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
-        val chat=button("محادثة 💬",BLUE,false);row.addView(chat,weight());chat.setOnClickListener{showChat(id,o.optString("booking_id"))}
+        val chat=button("محادثة 💬",BLUE,false);row.addView(chat,weight());chat.setOnClickListener{openChat(id,o.optString("booking_id"))}
         if(!terminal){
             val yes=button("تأكيد ✓",GREEN,false);val no=button("رفض ×",RED,false)
             row.addView(yes,weight().apply{marginStart=dp(6)});row.addView(no,weight().apply{marginStart=dp(6)})
@@ -235,7 +235,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val detailBtn=button("تفاصيل",BLUE,false);mr.addView(detailBtn,wrap().apply{marginStart=dp(8)});body.addView(mr)
         detailBtn.setOnClickListener{showPaymentDetails(o)}
         val buttons=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
-        val chat=button("محادثة 💬",BLUE,false);buttons.addView(chat,weight());chat.setOnClickListener{showChat(id,o.optString("booking_id"))}
+        val chat=button("محادثة 💬",BLUE,false);buttons.addView(chat,weight());chat.setOnClickListener{openChat(id,o.optString("booking_id"))}
         if(!terminal){
             val yes=button("تأكيد ✓",GREEN,false);val no=button("رفض ×",RED,false);buttons.addView(yes,weight().apply{marginStart=dp(6)});buttons.addView(no,weight().apply{marginStart=dp(6)});yes.setOnClickListener{approve(id)};no.setOnClickListener{reject(id)}
         } else body.addView(txt("العملية نهائية — تم إخفاء التأكيد والرفض.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
@@ -273,20 +273,21 @@ class StaffTabsActivity : AppCompatActivity() {
     private fun approve(id:String){lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.approve(this@StaffTabsActivity,id)};toast(if(r.ok)"تم اعتماد العملية وإصدار التذكرة." else r.error);if(r.ok)loadPayments()}}
     private fun reject(id:String){val e=EditText(this).apply{hint="سبب الرفض";setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED));minLines=2};AlertDialog.Builder(this).setTitle("رفض عملية الدفع").setView(e).setPositiveButton("رفض"){_,_->lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.reject(this@StaffTabsActivity,id,e.text.toString().ifBlank{"رفض موظف"})};toast(if(r.ok)"تم رفض العملية." else r.error);if(r.ok)loadPayments()}}.setNegativeButton("إلغاء",null).show()}
 
-    private fun showChat(operationId:String,bookingId:String){
+    private fun openChat(operationId:String,bookingId:String){
         if(operationId.isBlank()){toast("رقم العملية غير متاح.");return}
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(5),dp(8),0)}
-        val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        val scroll=ScrollView(this).apply{addView(list);layoutParams=LinearLayout.LayoutParams(-1,dp(360))}
-        val choose=button("إرفاق صورة 📷",BLUE,false);selectedImageLabel=txt("",10.5f,GOLD,true)
-        val input=EditText(this).apply{hint="اكتب رسالة للعميل...";setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED));setBackgroundColor(Color.parseColor(SURFACE2));setPadding(dp(12),dp(8),dp(12),dp(8))}
-        val send=button("إرسال",GOLD,true)
-        box.addView(scroll);val attach=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;addView(choose,wrap());addView(selectedImageLabel,LinearLayout.LayoutParams(0,-2,1f).apply{gravity=Gravity.CENTER_VERTICAL;marginStart=dp(8)})};box.addView(attach,match());val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;addView(input,LinearLayout.LayoutParams(0,dp(52),1f));addView(send,LinearLayout.LayoutParams(dp(95),dp(52)).apply{marginStart=dp(6)})};box.addView(row)
-        val dlg=AlertDialog.Builder(this).setTitle("محادثة $bookingId").setView(box).setNegativeButton("إغلاق",null).create()
-        choose.setOnClickListener{imagePicker.launch("image/*")}
-        fun reload(){lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.chat(this@StaffTabsActivity,operationId)};if(!r.ok)return@launch;list.removeAllViews();val a=r.body.optJSONArray("messages")?:JSONArray();for(i in 0 until a.length()){val m=a.optJSONObject(i)?:continue;val own=m.optString("sender_type")=="staff";val t=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;gravity=if(own)Gravity.END else Gravity.START;setPadding(dp(4),dp(3),dp(4),dp(3))};val bubble=card(if(own)"#1B3550" else "#162332",14f);val inner=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(8))};inner.addView(txt(if(own)"أنت" else "العميل",10f,if(own)GOLD else GREEN,true),match());inner.addView(txt(m.optString("message"),12.5f,TEXT,false),match());if(m.optString("media_url").isNotBlank()){val im=ImageView(this@StaffTabsActivity).apply{adjustViewBounds=true;maxHeight=dp(220)};inner.addView(im,match().apply{topMargin=dp(6)});lifecycleScope.launch{val bm=withContext(Dispatchers.IO){loadImage(m.optString("media_url"))};if(bm!=null)im.setImageBitmap(bm)}};bubble.addView(inner);t.addView(bubble,wrap());list.addView(t)};scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}}
-        send.setOnClickListener{val msg=input.text.toString().trim();val img=selectedImage;if(msg.isBlank()&&img==null){toast("اكتب رسالة أو اختر صورة.");return@setOnClickListener};send.isEnabled=false;lifecycleScope.launch{val r=withContext(Dispatchers.IO){if(img!=null)StaffClient.sendChatMedia(this@StaffTabsActivity,operationId,msg,img)else StaffClient.sendChat(this@StaffTabsActivity,operationId,msg)};send.isEnabled=true;if(r.ok){input.setText("");selectedImage=null;selectedImageLabel?.text="";reload()}else toast(r.error)}}
-        dlg.setOnShowListener{reload();lifecycleScope.launch{repeat(8){delay(2500);if(dlg.isShowing)reload()}}};dlg.show()
+        startActivity(Intent(this,StaffChatActivity::class.java).apply{
+            putExtra("operation_id",operationId);putExtra("booking_id",bookingId)
+        })
+    }
+
+    private fun handleIncomingIntent(i:Intent?){
+        val operationId=i?.getStringExtra("open_operation_id").orEmpty()
+        val bookingId=i?.getStringExtra("open_booking_id").orEmpty()
+        val openChat=i?.getBooleanExtra("open_chat",false)?:false
+        if(openChat && operationId.isNotBlank()){
+            openChat(operationId,bookingId)
+            i.removeExtra("open_chat");i.removeExtra("open_operation_id");i.removeExtra("open_booking_id")
+        }
     }
 
     private fun apiGet(path:String):StaffResult{
