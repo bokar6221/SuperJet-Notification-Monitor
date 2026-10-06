@@ -153,7 +153,7 @@ class StaffChatActivity : AppCompatActivity() {
             setHintTextColor(Color.parseColor(StaffTabsActivity.MUTED))
             background = null
             gravity = Gravity.CENTER_VERTICAL
-            singleLine = false
+            setSingleLine(false)
             maxLines = 5
             setPadding(0, 0, 0, 0)
         }
