@@ -197,20 +197,26 @@ class StaffTabsActivity : AppCompatActivity() {
     }
 
     private fun bookingOperationCard(o:JSONObject,terminal:Boolean)=card(SURFACE,17f).apply{
-        val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"}
+        val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val proof=o.optBoolean("proof_available",false)
         val b=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(11),dp(12),dp(11))}
         val top=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         top.addView(txt(o.optString("booking_id").ifBlank{"حجز"},14f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f))
         top.addView(pill(statusText(st),statusColor(st)),wrap());b.addView(top)
-        b.addView(txt(o.optString("customer_name").ifBlank{"عميل"}+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
-        val row=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
-        val chat=button("محادثة 💬",BLUE,false);row.addView(chat,weight());chat.setOnClickListener{openChat(id,o.optString("booking_id"))}
+        b.addView(txt(o.optString("customer_name").ifBlank{"عميل"}+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمقاعد: "+seatText(o.optString("seats_json"))+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        b.addView(txt(if(proof)"📷 إثبات التحويل: موجود — اضغط لعرضه" else "📷 إثبات التحويل: لم يصل بعد",11f,if(proof)GREEN else ORANGE,true),match().apply{topMargin=dp(6)})
+        val infoRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
+        val proofBtn=button(if(proof)"📷 عرض الإثبات" else "📷 ملف الدفع",BLUE,false);infoRow.addView(proofBtn,weight());proofBtn.setOnClickListener{showOperationReview(id)}
+        val chat=button("محادثة 💬",SURFACE,false);infoRow.addView(chat,weight().apply{marginStart=dp(6)});chat.setOnClickListener{openChat(id,o.optString("booking_id"))}
+        b.addView(infoRow,match().apply{topMargin=dp(8)})
         if(!terminal){
-            val yes=button("تأكيد ✓",GREEN,false);val no=button("رفض ×",RED,false)
-            row.addView(yes,weight().apply{marginStart=dp(6)});row.addView(no,weight().apply{marginStart=dp(6)})
+            val actionRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
+            val yes=button(if(proof)"تأكيد ✓" else "تأكيد — أرسل الإثبات",GREEN,false);val no=button("رفض ×",RED,false)
+            yes.isEnabled=proof
+            actionRow.addView(yes,weight());actionRow.addView(no,weight().apply{marginStart=dp(6)})
             yes.setOnClickListener{approveFromOperations(id)};no.setOnClickListener{rejectFromOperations(id)}
-        } else b.addView(txt("العملية نهائية — الأزرار الإجرائية مخفية، والمحادثة فقط متاحة.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
-        b.addView(row,match().apply{topMargin=dp(8)});addView(b)
+            b.addView(actionRow,match().apply{topMargin=dp(7)})
+        } else b.addView(txt("العملية نهائية — المحادثة وتفاصيل الإثبات متاحة للمراجعة.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        addView(b)
     }
 
     private fun approveFromOperations(id:String){
@@ -242,7 +248,7 @@ class StaffTabsActivity : AppCompatActivity() {
     }
 
     private fun paymentCard(o:JSONObject)=card(SURFACE,17f).apply{
-        val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val terminal=st=="TICKET_READY"||st=="PAYMENT_REJECTED"
+        val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val terminal=st=="TICKET_READY"||st=="PAYMENT_REJECTED";val proof=o.optBoolean("proof_available",false)
         val match=o.optJSONObject("match")?:JSONObject();val ms=match.optString("status").ifBlank{"UNMATCHED"}
         val matchOk=ms=="MATCHED";val matchText=if(matchOk)"✅ مطابقة" else if(ms=="PARTIAL_MATCH")"⚠️ مطابقة جزئية" else "❌ غير مطابقة"
         val matchColor=if(matchOk)GREEN else if(ms=="PARTIAL_MATCH")ORANGE else RED
@@ -251,16 +257,46 @@ class StaffTabsActivity : AppCompatActivity() {
         row.addView(txt(o.optString("booking_id").ifBlank{"عملية دفع"},14f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f));row.addView(pill(statusText(st),statusColor(st)),wrap());body.addView(row)
         body.addView(txt(o.optString("customer_name")+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
         val mr=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(0,dp(7),0,0)}
-        mr.addView(txt("نتيجة المطابقة",11f,MUTED,true),LinearLayout.LayoutParams(0,-2,1f))
-        mr.addView(txt(matchText,13f,matchColor,true),wrap())
-        val detailBtn=button("تفاصيل",BLUE,false);mr.addView(detailBtn,wrap().apply{marginStart=dp(8)});body.addView(mr)
-        detailBtn.setOnClickListener{showPaymentDetails(o)}
+        mr.addView(txt("نتيجة المطابقة",11f,MUTED,true),LinearLayout.LayoutParams(0,-2,1f));mr.addView(txt(matchText,13f,matchColor,true),wrap())
+        val detailBtn=button("تفاصيل",BLUE,false);mr.addView(detailBtn,wrap().apply{marginStart=dp(8)});body.addView(mr);detailBtn.setOnClickListener{showOperationReview(id)}
         val buttons=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
         val chat=button("محادثة 💬",BLUE,false);buttons.addView(chat,weight());chat.setOnClickListener{openChat(id,o.optString("booking_id"))}
         if(!terminal){
-            val yes=button("تأكيد ✓",GREEN,false);val no=button("رفض ×",RED,false);buttons.addView(yes,weight().apply{marginStart=dp(6)});buttons.addView(no,weight().apply{marginStart=dp(6)});yes.setOnClickListener{approve(id)};no.setOnClickListener{reject(id)}
+            val yes=button(if(proof)"تأكيد ✓" else "تأكيد — الإثبات مطلوب",GREEN,false);val no=button("رفض ×",RED,false);yes.isEnabled=proof
+            buttons.addView(yes,weight().apply{marginStart=dp(6)});buttons.addView(no,weight().apply{marginStart=dp(6)});yes.setOnClickListener{approve(id)};no.setOnClickListener{reject(id)}
         } else body.addView(txt("العملية نهائية — تم إخفاء التأكيد والرفض.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
-        body.addView(buttons,match().apply{topMargin=dp(8)});addView(body)
+        body.addView(buttons,match().apply{topMargin=dp(8)})
+        val proofBtn=button(if(proof)"📷 عرض إثبات التحويل" else "📷 لا يوجد إثبات",BLUE,false);proofBtn.isEnabled=proof;proofBtn.setOnClickListener{showOperationReview(id)}
+        body.addView(proofBtn,match().apply{topMargin=dp(7)});addView(body)
+    }
+
+    private fun seatText(raw:String):String = runCatching{
+        val a=JSONArray(raw.ifBlank{"[]"});val out=ArrayList<String>();for(i in 0 until a.length())out.add(a.optString(i));out.joinToString(" • ")
+    }.getOrElse{raw.ifBlank{"—"}}
+
+    private fun showOperationReview(id:String){
+        lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){StaffClient.operation(this@StaffTabsActivity,id)}
+            if(!r.ok){toast(r.error);return@launch}
+            val o=r.body.optJSONObject("operation")?:JSONObject();val proof=o.optJSONObject("proof")?:JSONObject()
+            val rec=o.optJSONObject("reconciliation")?:JSONObject();val vision=o.optJSONObject("payment_vision")?:rec.optJSONObject("vision")?:JSONObject()
+            val match=(o.optJSONArray("matches")?.optJSONObject(0))?:JSONObject();val androidTx=o.optJSONArray("android")?.optJSONObject(0)?:JSONObject()
+            val box=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(4),dp(4),dp(4),0)}
+            val scroll=ScrollView(this@StaffTabsActivity);val inner=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(6),dp(8),dp(6))}
+            fun addLine(label:String,value:String,color:String=TEXT,bold:Boolean=false){inner.addView(txt(label+"\n"+value,12f,color,bold),match().apply{topMargin=dp(6);bottomMargin=dp(4)})}
+            addLine("العميل",o.optString("customer_name").ifBlank{"—"});addLine("الرحلة",o.optString("from_name")+" → "+o.optString("to_name"));addLine("الموعد",o.optString("travel_date")+" • "+o.optString("travel_time"));addLine("المقاعد",seatText(o.optString("seats_json")));addLine("المبلغ",fmt(o.optDouble("amount",0.0))+" جنيه",GOLD,true);addLine("وسيلة الدفع",o.optString("payment_method").ifBlank{"—"})
+            addLine("حالة المطابقة",match.optString("status").ifBlank{"UNMATCHED"}+" • "+match.optString("reason").ifBlank{"لم يتم الحسم بعد"},if(match.optString("status")=="MATCHED")GREEN else ORANGE,true)
+            addLine("Gemini Vision","المبلغ: "+vision.optString("amount","غير واضح")+"\nالمرسل: "+vision.optString("sender_phone",vision.optString("sender","غير واضح"))+"\nالمرجع: "+vision.optString("reference","غير واضح")+"\nالمستلم: "+vision.optString("recipient_phone",vision.optString("recipient","غير واضح"))+"\nالثقة: "+vision.optString("confidence","—"))
+            addLine("إشعار الهاتف",if(androidTx.length()==0)"لا يوجد إشعار مرتبط" else "المبلغ: "+androidTx.optString("amount","—")+"\nالمرجع: "+androidTx.optString("reference","—")+"\nالمرسل: "+androidTx.optString("sender_phone","—")+"\nالمستلم: "+androidTx.optString("recipient_account","—"))
+            val image=ImageView(this@StaffTabsActivity).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.CENTER_INSIDE;minimumHeight=dp(150);setBackgroundColor(Color.parseColor(SURFACE2))}
+            val mediaUrl=proof.optString("media_url")
+            if(mediaUrl.isNotBlank()){
+                inner.addView(txt("📷 صورة إثبات التحويل",13f,GREEN,true),match().apply{topMargin=dp(8)});inner.addView(image,LinearLayout.LayoutParams(-1,dp(260)).apply{topMargin=dp(6);bottomMargin=dp(6)})
+                lifecycleScope.launch{val bm=withContext(Dispatchers.IO){loadImage(mediaUrl)};if(bm!=null)image.setImageBitmap(bm)else image.setImageResource(android.R.drawable.ic_dialog_alert)}
+                image.setOnClickListener{if(image.drawable!=null)AlertDialog.Builder(this@StaffTabsActivity).setTitle("إثبات التحويل").setView(ImageView(this@StaffTabsActivity).apply{setImageDrawable(image.drawable);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER}).setPositiveButton("إغلاق",null).show()}
+            }else inner.addView(txt("📷 لا توجد صورة إثبات محفوظة لهذا الطلب.",12f,ORANGE,true),match().apply{topMargin=dp(8)})
+            scroll.addView(inner);box.addView(scroll,LinearLayout.LayoutParams(-1,dp(520)));AlertDialog.Builder(this@StaffTabsActivity).setTitle("ملف التحقق والدفع").setView(box).setPositiveButton("إغلاق",null).show()
+        }
     }
 
     private fun showPaymentDetails(o:JSONObject){

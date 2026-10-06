@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.6.1 STABLE FINAL
+name: Build SuperJet Staff v3.6.2 OPERATION CENTER FINAL
 
 on:
   workflow_dispatch:
@@ -35,4 +35,4 @@ jobs:
             SuperJet_Staff_v3.6.1_STABLE_FINAL.apk
             SuperJet_Staff_v3.6.1_STABLE_FINAL_SOURCE.zip
 
-# V3.6.1 stable: rate-limit hardening + persistent chat media
+# V3.6.2 stable: operation center proof review + customer-service approval
