@@ -293,7 +293,9 @@ class StaffTabsActivity : AppCompatActivity() {
             if(!r.ok){toast(r.error);return@launch}
             var o=r.body.optJSONObject("operation")?:JSONObject()
             val proof=o.optJSONObject("proof")?:JSONObject()
-            val needVision=proof.optString("path").isNotBlank() && (o.optJSONObject("payment_vision")?:JSONObject()).length()==0 && (o.optJSONObject("reconciliation")?:JSONObject()).length()==0
+            val initialRec=o.optJSONObject("reconciliation")?:JSONObject()
+            val initialVision=o.optJSONObject("payment_vision")?:initialRec.optJSONObject("vision")?:JSONObject()
+            val needVision=proof.optString("path").isNotBlank() && (initialRec.optBoolean("analysis_pending",false) || initialVision.length()==0)
             if(needVision){
                 val rr=withContext(Dispatchers.IO){StaffClient.reanalyze(this@StaffTabsActivity,id)}
                 if(rr.ok){r=rr;o=rr.body.optJSONObject("operation")?:o}
