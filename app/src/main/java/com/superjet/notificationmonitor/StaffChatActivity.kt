@@ -24,22 +24,37 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
 class StaffChatActivity : AppCompatActivity() {
+    companion object {
+        private const val REFRESH_MS = 3500L
+        private const val RETRY_MS = 6500L
+        private val IMAGE_CACHE = object : android.util.LruCache<String, Bitmap>(20 * 1024) {
+            override fun sizeOf(key: String, value: Bitmap): Int {
+                return maxOf(1, value.byteCount / 1024)
+            }
+        }
+    }
+
     private lateinit var messagesView: RecyclerView
     private lateinit var input: EditText
     private lateinit var send: MaterialButton
+    private lateinit var attach: MaterialButton
     private lateinit var adapter: MessageAdapter
     private var operationId = ""
     private var bookingId = ""
     private var selectedImage: Uri? = null
     private var refreshJob: Job? = null
+    private var sending = false
+    private var lastBottomId = 0L
 
     private val picker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         selectedImage = uri
-        toast(if (uri != null) "صورة مرفقة ✓" else "إرفاق صورة")
+        attach.text = if (uri != null) "✓ صورة" else "＋"
+        attach.contentDescription = if (uri != null) "الصورة مرفقة" else "إرفاق صورة"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,12 +69,14 @@ class StaffChatActivity : AppCompatActivity() {
         window.statusBarColor = Color.parseColor(StaffTabsActivity.NAVY)
         window.navigationBarColor = Color.parseColor(StaffTabsActivity.NAVY)
         buildUi()
-        reload()
 
-        refreshJob = lifecycleScope.launch {
+        lifecycleScope.launch {
+            reload()
+            var waitMs = REFRESH_MS
             while (isActive) {
-                delay(2500)
-                reload(false)
+                delay(waitMs)
+                val ok = reload(false)
+                waitMs = if (ok) REFRESH_MS else RETRY_MS
             }
         }
     }
@@ -92,7 +109,7 @@ class StaffChatActivity : AppCompatActivity() {
 
         val avatar = TextView(this).apply {
             text = "👤"
-            textSize = 22f
+            textSize = 21f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             background = roundBg("#173250", 40f)
@@ -105,12 +122,7 @@ class StaffChatActivity : AppCompatActivity() {
         }
         titleBox.addView(txt("محادثة العميل", 17f, StaffTabsActivity.TEXT, true), match())
         titleBox.addView(
-            txt(
-                if (bookingId.isBlank()) "متابعة العملية" else bookingId,
-                11f,
-                StaffTabsActivity.MUTED,
-                false
-            ),
+            txt(if (bookingId.isBlank()) "متابعة العملية" else bookingId, 11f, StaffTabsActivity.MUTED, false),
             match().apply { topMargin = dp(2) }
         )
         top.addView(titleBox, LinearLayout.LayoutParams(0, -2, 1f))
@@ -122,6 +134,7 @@ class StaffChatActivity : AppCompatActivity() {
             }
             setPadding(dp(10), dp(8), dp(10), dp(10))
             clipToPadding = false
+            itemAnimator = null
         }
         adapter = MessageAdapter()
         messagesView.adapter = adapter
@@ -134,12 +147,12 @@ class StaffChatActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor(StaffTabsActivity.NAVY))
         }
 
-        val attach = button("＋", StaffTabsActivity.SURFACE, false).apply {
-            textSize = 22f
-            minWidth = dp(50)
+        attach = button("＋", StaffTabsActivity.SURFACE, false).apply {
+            textSize = 21f
+            minWidth = dp(54)
             contentDescription = "إرفاق صورة"
         }
-        composer.addView(attach, lp(50, 52))
+        composer.addView(attach, lp(54, 52))
         attach.setOnClickListener { picker.launch("image/*") }
 
         val inputBox = FrameLayout(this).apply {
@@ -155,6 +168,7 @@ class StaffChatActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setSingleLine(false)
             maxLines = 5
+            isVerticalScrollBarEnabled = true
             setPadding(0, 0, 0, 0)
         }
         inputBox.addView(input, FrameLayout.LayoutParams(-1, dp(52)))
@@ -175,33 +189,39 @@ class StaffChatActivity : AppCompatActivity() {
         setContentView(root)
     }
 
-    private fun reload(showProgress: Boolean = true) {
-        lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                StaffClient.chat(this@StaffChatActivity, operationId)
-            }
-            if (!result.ok) return@launch
-
-            val messages = result.body.optJSONArray("messages") ?: JSONArray()
-            adapter.setItems(messages)
-
-            messagesView.post {
-                if (adapter.itemCount > 0) {
-                    messagesView.scrollToPosition(adapter.itemCount - 1)
-                }
-            }
+    private suspend fun reload(showProgress: Boolean = true): Boolean {
+        if (isFinishing || isDestroyed) return false
+        val result = withContext(Dispatchers.IO) {
+            StaffClient.chat(this@StaffChatActivity, operationId)
         }
+        if (!result.ok) return false
+
+        val messages = result.body.optJSONArray("messages") ?: JSONArray()
+        val latestId = if (messages.length() > 0) {
+            messages.optJSONObject(messages.length() - 1)?.optLong("id", 0L) ?: 0L
+        } else 0L
+        val wasAtBottom = !messagesView.canScrollVertically(1) || adapter.itemCount == 0
+        adapter.setItems(messages)
+
+        if (latestId > lastBottomId && (wasAtBottom || adapter.itemCount <= 1)) {
+            lastBottomId = latestId
+            messagesView.post { messagesView.scrollToPosition(maxOf(0, adapter.itemCount - 1)) }
+        } else if (latestId > lastBottomId && messagesView.canScrollVertically(1).not()) {
+            lastBottomId = latestId
+        }
+        return true
     }
 
     private fun sendMessage() {
+        if (sending) return
         val message = input.text.toString().trim()
         val image = selectedImage
-
         if (message.isBlank() && image == null) {
             toast("اكتب رسالة أو اختر صورة.")
             return
         }
 
+        sending = true
         send.isEnabled = false
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -211,11 +231,14 @@ class StaffChatActivity : AppCompatActivity() {
                     StaffClient.sendChat(this@StaffChatActivity, operationId, message)
                 }
             }
+            sending = false
             send.isEnabled = true
 
             if (result.ok) {
                 input.setText("")
                 selectedImage = null
+                attach.text = "＋"
+                attach.contentDescription = "إرفاق صورة"
                 reload()
             } else {
                 toast(result.error)
@@ -225,6 +248,12 @@ class StaffChatActivity : AppCompatActivity() {
 
     private inner class MessageAdapter : RecyclerView.Adapter<MessageVH>() {
         private val items = ArrayList<JSONObject>()
+
+        init { setHasStableIds(true) }
+
+        override fun getItemId(position: Int): Long {
+            return items.getOrNull(position)?.optLong("id", position.toLong()) ?: position.toLong()
+        }
 
         override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): MessageVH {
             return MessageVH(
@@ -242,10 +271,28 @@ class StaffChatActivity : AppCompatActivity() {
         }
 
         fun setItems(array: JSONArray) {
-            items.clear()
+            val incoming = ArrayList<JSONObject>()
             for (index in 0 until array.length()) {
-                array.optJSONObject(index)?.let(items::add)
+                array.optJSONObject(index)?.let(incoming::add)
             }
+            var same = items.size == incoming.size
+            if (same) {
+                for (i in items.indices) {
+                    if (items[i].optLong("id", -1L) != incoming[i].optLong("id", -1L)) {
+                        same = false
+                        break
+                    }
+                    if (items[i].optString("message") != incoming[i].optString("message") ||
+                        items[i].optString("media_url") != incoming[i].optString("media_url")) {
+                        same = false
+                        break
+                    }
+                }
+            }
+            if (same) return
+
+            items.clear()
+            items.addAll(incoming)
             notifyDataSetChanged()
         }
     }
@@ -263,9 +310,7 @@ class StaffChatActivity : AppCompatActivity() {
                 radius = dp(18).toFloat()
                 strokeWidth = dp(1)
                 strokeColor = Color.parseColor(StaffTabsActivity.STROKE)
-                setCardBackgroundColor(
-                    Color.parseColor(if (own) "#1C3854" else "#142230")
-                )
+                setCardBackgroundColor(Color.parseColor(if (own) "#1C3854" else "#142230"))
             }
 
             val inner = LinearLayout(this@StaffChatActivity).apply {
@@ -274,12 +319,8 @@ class StaffChatActivity : AppCompatActivity() {
             }
 
             inner.addView(
-                txt(
-                    if (own) "أنت" else "العميل",
-                    10f,
-                    if (own) StaffTabsActivity.GOLD else StaffTabsActivity.GREEN,
-                    true
-                ),
+                txt(if (own) "أنت" else "العميل", 10f,
+                    if (own) StaffTabsActivity.GOLD else StaffTabsActivity.GREEN, true),
                 match()
             )
 
@@ -293,42 +334,51 @@ class StaffChatActivity : AppCompatActivity() {
 
             val mediaUrl = message.optString("media_url")
             if (mediaUrl.isNotBlank()) {
+                val imageBox = FrameLayout(this@StaffChatActivity)
+                imageBox.background = roundBg("#0B1622", 14f)
                 val image = ImageView(this@StaffChatActivity).apply {
                     adjustViewBounds = true
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     minimumHeight = dp(120)
+                    setImageResource(android.R.drawable.ic_menu_gallery)
+                    tag = mediaUrl
                 }
-                inner.addView(
-                    image,
-                    LinearLayout.LayoutParams(dp(240), dp(180)).apply {
-                        topMargin = dp(7)
-                    }
-                )
+                imageBox.addView(image, FrameLayout.LayoutParams(dp(260), dp(195)))
+                inner.addView(imageBox, LinearLayout.LayoutParams(dp(260), dp(195)).apply { topMargin = dp(7) })
+
                 loadImageInto(image, mediaUrl)
+                image.setOnClickListener { showImageDialog(mediaUrl) }
             }
 
             bubble.addView(inner)
-            row.addView(
-                bubble,
-                LinearLayout.LayoutParams(-2, -2).apply { weight = 0f }
-            )
+            row.addView(bubble, LinearLayout.LayoutParams(-2, -2))
         }
     }
 
     private fun loadImageInto(view: ImageView, path: String) {
+        val base = SecureConfig.getServerUrl(this).trimEnd('/')
+        val url = if (path.startsWith("http")) path else base + path
+        val cached = synchronized(IMAGE_CACHE) { IMAGE_CACHE.get(url) }
+        if (cached != null) {
+            view.setImageBitmap(cached)
+            return
+        }
+
         lifecycleScope.launch {
-            val bitmap = withContext(Dispatchers.IO) { loadImage(path) }
-            if (bitmap != null) view.setImageBitmap(bitmap)
+            val bitmap = withContext(Dispatchers.IO) { loadImage(url) }
+            if (bitmap != null) {
+                synchronized(IMAGE_CACHE) { IMAGE_CACHE.put(url, bitmap) }
+                if (view.tag == path || view.tag == url) view.setImageBitmap(bitmap)
+            }
         }
     }
 
-    private fun loadImage(path: String): Bitmap? = runCatching {
-        val base = SecureConfig.getServerUrl(this).trimEnd('/')
-        val url = if (path.startsWith("http")) path else base + path
+    private fun loadImage(url: String): Bitmap? = runCatching {
         val connection =
             (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 12000
                 readTimeout = 25000
+                useCaches = true
                 setRequestProperty(
                     "Authorization",
                     "Bearer " + SecureConfig.getToken(this@StaffChatActivity)
@@ -338,10 +388,33 @@ class StaffChatActivity : AppCompatActivity() {
                     StaffClient.deviceId(this@StaffChatActivity)
                 )
             }
-
-        connection.inputStream.use { BitmapFactory.decodeStream(it) }
-            .also { connection.disconnect() }
+        try {
+            connection.inputStream.use { BitmapFactory.decodeStream(it) }
+        } finally {
+            connection.disconnect()
+        }
     }.getOrNull()
+
+    private fun showImageDialog(path: String) {
+        val base = SecureConfig.getServerUrl(this).trimEnd('/')
+        val url = if (path.startsWith("http")) path else base + path
+        val cached = synchronized(IMAGE_CACHE) { IMAGE_CACHE.get(url) }
+        if (cached == null) {
+            toast("الصورة لم تكتمل بعد، حاول ثانية.")
+            return
+        }
+        val image = ImageView(this).apply {
+            setImageBitmap(cached)
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(Color.BLACK)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("صورة المحادثة")
+            .setView(image)
+            .setPositiveButton("إغلاق", null)
+            .show()
+    }
 
     private fun button(text: String, bg: String, dark: Boolean) =
         MaterialButton(this).apply {
@@ -375,6 +448,7 @@ class StaffChatActivity : AppCompatActivity() {
             setColor(Color.parseColor(color))
             cornerRadius = dp(radius.toInt()).toFloat()
         }
+
     private fun dp(value: Int) =
         (value * resources.displayMetrics.density + 0.5f).toInt()
 

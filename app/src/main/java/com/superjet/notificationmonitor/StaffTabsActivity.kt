@@ -60,7 +60,14 @@ class StaffTabsActivity : AppCompatActivity() {
 
     override fun onCreate(b:Bundle?){super.onCreate(b);NotificationStore.pruneNonPayment(this);window.statusBarColor=Color.parseColor(NAVY);window.navigationBarColor=Color.parseColor(NAVY);root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))};setContentView(root);if(SecureConfig.getToken(this).isBlank())showLogin()else{showMain();startBgService();requestNotif();handleIncomingIntent(intent)}}
 
-    override fun onResume(){super.onResume();if(SecureConfig.getToken(this).isNotBlank()&&content!=null){loadTab();lifecycleScope.launch{withContext(Dispatchers.IO){StaffClient.heartbeat(this@StaffTabsActivity)}}}}
+    private var lastTabLoadAt = 0L
+    override fun onResume(){
+        super.onResume()
+        if(SecureConfig.getToken(this).isNotBlank() && content!=null){
+            loadTab()
+            lifecycleScope.launch{withContext(Dispatchers.IO){StaffClient.heartbeat(this@StaffTabsActivity)}}
+        }
+    }
     override fun onNewIntent(i:Intent?){super.onNewIntent(i);setIntent(i);if(SecureConfig.getToken(this).isNotBlank()){loadTab();handleIncomingIntent(i)}}
 
     private fun showLogin(){
@@ -98,8 +105,22 @@ class StaffTabsActivity : AppCompatActivity() {
         content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(20))};root.addView(ScrollView(this).apply{isFillViewport=true;addView(content)},LinearLayout.LayoutParams(-1,0,1f));selectTab(currentTab)
     }
 
-    private fun selectTab(i:Int){currentTab=i;tabs.forEachIndexed{n,b->val on=n==i;b.backgroundTintList=android.content.res.ColorStateList.valueOf(Color.parseColor(if(on)GOLD else SURFACE));b.setTextColor(Color.parseColor(if(on)NAVY else TEXT))};loadTab()}
-    private fun loadTab(){when(currentTab){0->loadNotifications();1->loadChats();2->loadBookingOperations();3->loadPayments()}}
+    private fun selectTab(i:Int){
+        currentTab=i
+        tabs.forEachIndexed{n,b->
+            val on=n==i
+            b.backgroundTintList=android.content.res.ColorStateList.valueOf(Color.parseColor(if(on)GOLD else SURFACE))
+            b.setTextColor(Color.parseColor(if(on)NAVY else TEXT))
+        }
+        lastTabLoadAt = 0L
+        loadTab(force=true)
+    }
+    private fun loadTab(force:Boolean=false){
+        val now=System.currentTimeMillis()
+        if(!force && now-lastTabLoadAt<1200L) return
+        lastTabLoadAt=now
+        when(currentTab){0->loadNotifications();1->loadChats();2->loadBookingOperations();3->loadPayments()}
+    }
 
     private fun loadNotifications(){
         clear();content?.addView(title("الإشعارات والمزامنة","إشعارات الدفع المقروءة من الهاتف وحالة المزامنة مع الخادم."))
@@ -306,7 +327,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val st=if(code in 200..299)cn.inputStream else cn.errorStream
         val raw=if(st!=null)BufferedReader(InputStreamReader(st,Charsets.UTF_8)).use{it.readText()} else ""
         val jo=runCatching{JSONObject(raw)}.getOrElse{JSONObject()}
-        return if(code in 200..299)StaffResult(true,jo) else StaffResult(false,jo,"HTTP_$"+"{code}:"+jo.optString("error",raw))
+        return if(code in 200..299)StaffResult(true,jo) else StaffResult(false,jo,"HTTP_"+code+":"+jo.optString("error",raw))
     }
 
     private fun loadImage(path:String):Bitmap?=runCatching{

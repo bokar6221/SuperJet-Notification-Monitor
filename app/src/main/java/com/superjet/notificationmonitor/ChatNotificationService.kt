@@ -69,7 +69,9 @@ class ChatNotificationService : Service() {
                 seedState(this@ChatNotificationService,sinceEvent,sinceChat)
             }
         }
+        var backoffMs = 300L
         while(scope.isActive){
+            var nextDelay = 300L
             try{
                 val r=StaffClient.pollStaffAlerts(this@ChatNotificationService,sinceEvent,sinceChat)
                 if(r.ok){
@@ -94,9 +96,20 @@ class ChatNotificationService : Service() {
                     sinceEvent=maxOf(sinceEvent,r.body.optLong("last_event_id",sinceEvent))
                     sinceChat=maxOf(sinceChat,r.body.optLong("last_chat_id",sinceChat))
                     prefs.edit().putLong(LAST_EVENT_ID,sinceEvent).putLong(LAST_CHAT_ID,sinceChat).putBoolean(SEEDED,true).apply()
-                }else if(r.error.contains("HTTP_401")||r.error.contains("STAFF_AUTH_REQUIRED")){ stopSelf();break }
-            }catch(_:Throwable){}
-            delay(300)
+                    backoffMs = 300L
+                }else if(r.error.contains("HTTP_401")||r.error.contains("STAFF_AUTH_REQUIRED")){
+                    stopSelf()
+                    break
+                }else{
+                    val rateLimited = r.error.contains("HTTP_429") || r.error.contains("TOO_MANY_REQUESTS")
+                    backoffMs = if(rateLimited) 5000L else minOf(10000L, maxOf(1000L, backoffMs*2))
+                    nextDelay = backoffMs
+                }
+            }catch(_:Throwable){
+                backoffMs = minOf(10000L, maxOf(1000L, backoffMs*2))
+                nextDelay = backoffMs
+            }
+            delay(nextDelay)
         }
     }
 
