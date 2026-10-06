@@ -390,6 +390,7 @@ object StaffClient{
     fun heartbeat(c:Context)=req(c,"POST","/api/mobile/heartbeat","{}",true)
     fun dashboard(c:Context)=req(c,"GET","/api/mobile/dashboard",null,true)
     fun operation(c:Context,id:String)=req(c,"GET","/api/mobile/operations/"+id,null,true)
+    fun reanalyze(c:Context,id:String)=req(c,"POST","/api/mobile/operations/$id/reanalyze-proof","{}",true)
     fun approve(c:Context,id:String)=req(c,"POST","/api/mobile/operations/$id/approve","{}",true)
     fun reject(c:Context,id:String,reason:String)=req(c,"POST","/api/mobile/operations/$id/reject",JSONObject().put("reason",reason).toString(),true)
     fun chat(c:Context,operationId:String)=req(c,"GET","/api/mobile/operations/"+operationId+"/chat",null,true)
