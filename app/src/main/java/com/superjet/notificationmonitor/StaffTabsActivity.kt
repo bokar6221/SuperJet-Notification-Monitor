@@ -196,12 +196,24 @@ class StaffTabsActivity : AppCompatActivity() {
         }
     }
 
+    private fun compactPaymentResult(o:JSONObject):Pair<String,String>{
+        val m=o.optJSONObject("match")?:o.optJSONObject("payment_match")?:JSONObject()
+        val st=m.optString("status").ifBlank{o.optString("payment_match_status").ifBlank{"PENDING"}}.uppercase(Locale.ROOT)
+        return when(st){
+            "MATCHED"->Pair("الدفع مطابق ✅",GREEN)
+            "CONFLICT","SUSPICIOUS","UNMATCHED"->Pair("الدفع غير مطابق ❌",RED)
+            "PARTIAL_MATCH"->Pair("الدفع يحتاج مراجعة ⚠️",ORANGE)
+            else->Pair("الدفع قيد التحقق ⏳",ORANGE)
+        }
+    }
+
     private fun bookingOperationCard(o:JSONObject,terminal:Boolean)=card(SURFACE,17f).apply{
-        val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val proof=o.optBoolean("proof_available",false)
+        val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val proof=o.optBoolean("proof_available",false);val payment=compactPaymentResult(o)
         val b=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(11),dp(12),dp(11))}
         val top=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         top.addView(txt(o.optString("booking_id").ifBlank{"حجز"},14f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f))
         top.addView(pill(statusText(st),statusColor(st)),wrap());b.addView(top)
+        b.addView(txt(payment.first,12.5f,payment.second,true),match().apply{topMargin=dp(6)})
         b.addView(txt(o.optString("customer_name").ifBlank{"عميل"}+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمقاعد: "+seatText(o.optString("seats_json"))+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
         b.addView(txt(if(proof)"📷 إثبات التحويل: موجود — اضغط لعرضه" else "📷 إثبات التحويل: لم يصل بعد",11f,if(proof)GREEN else ORANGE,true),match().apply{topMargin=dp(6)})
         val infoRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
@@ -216,6 +228,7 @@ class StaffTabsActivity : AppCompatActivity() {
             yes.setOnClickListener{approveFromOperations(id)};no.setOnClickListener{rejectFromOperations(id)}
             b.addView(actionRow,match().apply{topMargin=dp(7)})
         } else b.addView(txt("العملية نهائية — المحادثة وتفاصيل الإثبات متاحة للمراجعة.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        setOnClickListener{showOperationReview(id)}
         addView(b)
     }
 
@@ -249,16 +262,15 @@ class StaffTabsActivity : AppCompatActivity() {
 
     private fun paymentCard(o:JSONObject)=card(SURFACE,17f).apply{
         val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val terminal=st=="TICKET_READY"||st=="PAYMENT_REJECTED";val proof=o.optBoolean("proof_available",false)
-        val match=o.optJSONObject("match")?:JSONObject();val ms=match.optString("status").ifBlank{"UNMATCHED"}
-        val matchOk=ms=="MATCHED";val matchText=if(matchOk)"✅ مطابقة" else if(ms=="PARTIAL_MATCH")"⚠️ مطابقة جزئية" else "❌ غير مطابقة"
-        val matchColor=if(matchOk)GREEN else if(ms=="PARTIAL_MATCH")ORANGE else RED
+        val payment=compactPaymentResult(o)
+        val ms=(o.optJSONObject("match")?:JSONObject()).optString("status").ifBlank{"PENDING"}
         val body=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(11),dp(12),dp(11))}
         val row=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         row.addView(txt(o.optString("booking_id").ifBlank{"عملية دفع"},14f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f));row.addView(pill(statusText(st),statusColor(st)),wrap());body.addView(row)
         body.addView(txt(o.optString("customer_name")+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
         val mr=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(0,dp(7),0,0)}
-        mr.addView(txt("نتيجة المطابقة",11f,MUTED,true),LinearLayout.LayoutParams(0,-2,1f));mr.addView(txt(matchText,13f,matchColor,true),wrap())
-        val detailBtn=button("تفاصيل",BLUE,false);mr.addView(detailBtn,wrap().apply{marginStart=dp(8)});body.addView(mr);detailBtn.setOnClickListener{showOperationReview(id)}
+        mr.addView(txt("حالة الدفع",11f,MUTED,true),LinearLayout.LayoutParams(0,-2,1f));mr.addView(txt(payment.first,12.5f,payment.second,true),wrap())
+        val detailBtn=button("فتح العملية",BLUE,false);mr.addView(detailBtn,wrap().apply{marginStart=dp(8)});body.addView(mr);detailBtn.setOnClickListener{showOperationReview(id)}
         val buttons=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
         val chat=button("محادثة 💬",BLUE,false);buttons.addView(chat,weight());chat.setOnClickListener{openChat(id,o.optString("booking_id"))}
         if(!terminal){
@@ -275,29 +287,104 @@ class StaffTabsActivity : AppCompatActivity() {
     }.getOrElse{raw.ifBlank{"—"}}
 
     private fun showOperationReview(id:String){
+        if(id.isBlank()) return
         lifecycleScope.launch{
-            val r=withContext(Dispatchers.IO){StaffClient.operation(this@StaffTabsActivity,id)}
+            var r=withContext(Dispatchers.IO){StaffClient.operation(this@StaffTabsActivity,id)}
             if(!r.ok){toast(r.error);return@launch}
-            val o=r.body.optJSONObject("operation")?:JSONObject();val proof=o.optJSONObject("proof")?:JSONObject()
-            val rec=o.optJSONObject("reconciliation")?:JSONObject();val vision=o.optJSONObject("payment_vision")?:rec.optJSONObject("vision")?:JSONObject()
-            val match=(o.optJSONArray("matches")?.optJSONObject(0))?:JSONObject();val androidTx=o.optJSONArray("android")?.optJSONObject(0)?:JSONObject()
+            var o=r.body.optJSONObject("operation")?:JSONObject()
+            val proof=o.optJSONObject("proof")?:JSONObject()
+            val needVision=proof.optString("path").isNotBlank() && (o.optJSONObject("payment_vision")?:JSONObject()).length()==0 && (o.optJSONObject("reconciliation")?:JSONObject()).length()==0
+            if(needVision){
+                val rr=withContext(Dispatchers.IO){StaffClient.reanalyze(this@StaffTabsActivity,id)}
+                if(rr.ok){r=rr;o=rr.body.optJSONObject("operation")?:o}
+            }
+            val proof2=o.optJSONObject("proof")?:JSONObject()
+            val rec=o.optJSONObject("reconciliation")?:JSONObject()
+            val vision=o.optJSONObject("payment_vision")?:rec.optJSONObject("vision")?:JSONObject()
+            val match=(o.optJSONArray("matches")?.optJSONObject(0))?:JSONObject()
+            val checks=match.optJSONObject("checks")?:runCatching{JSONObject(match.optString("checks_json","{}"))}.getOrElse{JSONObject()}
+            val tx=o.optJSONArray("android")?.optJSONObject(0)?:JSONObject()
+            val payment=compactPaymentResult(o)
             val box=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(4),dp(4),dp(4),0)}
-            val scroll=ScrollView(this@StaffTabsActivity);val inner=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(6),dp(8),dp(6))}
-            fun addLine(label:String,value:String,color:String=TEXT,bold:Boolean=false){inner.addView(txt(label+"\n"+value,12f,color,bold),match().apply{topMargin=dp(6);bottomMargin=dp(4)})}
-            addLine("العميل",o.optString("customer_name").ifBlank{"—"});addLine("الرحلة",o.optString("from_name")+" → "+o.optString("to_name"));addLine("الموعد",o.optString("travel_date")+" • "+o.optString("travel_time"));addLine("المقاعد",seatText(o.optString("seats_json")));addLine("المبلغ",fmt(o.optDouble("amount",0.0))+" جنيه",GOLD,true);addLine("وسيلة الدفع",o.optString("payment_method").ifBlank{"—"})
-            addLine("حالة المطابقة",match.optString("status").ifBlank{"UNMATCHED"}+" • "+match.optString("reason").ifBlank{"لم يتم الحسم بعد"},if(match.optString("status")=="MATCHED")GREEN else ORANGE,true)
-            addLine("Gemini Vision","المبلغ: "+vision.optString("amount","غير واضح")+"\nالمرسل: "+vision.optString("sender_phone",vision.optString("sender","غير واضح"))+"\nالمرجع: "+vision.optString("reference","غير واضح")+"\nالمستلم: "+vision.optString("recipient_phone",vision.optString("recipient","غير واضح"))+"\nالثقة: "+vision.optString("confidence","—"))
-            addLine("إشعار الهاتف",if(androidTx.length()==0)"لا يوجد إشعار مرتبط" else "المبلغ: "+androidTx.optString("amount","—")+"\nالمرجع: "+androidTx.optString("reference","—")+"\nالمرسل: "+androidTx.optString("sender_phone","—")+"\nالمستلم: "+androidTx.optString("recipient_account","—"))
+            val scroll=ScrollView(this@StaffTabsActivity)
+            val inner=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(6),dp(8),dp(6))}
+            val title=txt(payment.first,15f,payment.second,true).apply{gravity=Gravity.CENTER;textAlignment=View.TEXT_ALIGNMENT_CENTER;setPadding(dp(8),dp(8),dp(8),dp(10))}
+            inner.addView(title,match())
+            fun addLine(label:String,value:String,color:String=TEXT,bold:Boolean=false){inner.addView(txt(label+"\\n"+value,12f,color,bold),match().apply{topMargin=dp(6);bottomMargin=dp(4)})}
+            addLine("العميل",o.optString("customer_name").ifBlank{"—"})
+            addLine("الرحلة",o.optString("from_name")+" → "+o.optString("to_name"))
+            addLine("الموعد",o.optString("travel_date")+" • "+o.optString("travel_time"))
+            addLine("المقاعد",seatText(o.optString("seats_json")))
+            addLine("مبلغ الحجز",fmt(o.optDouble("amount",0.0))+" جنيه",GOLD,true)
+            addLine("وسيلة الدفع",o.optString("payment_method").ifBlank{"—"})
+            addLine("حالة المطابقة",match.optString("status").ifBlank{"PENDING"}+" • "+match.optString("reason").ifBlank{"في انتظار اكتمال الأدلة"},payment.second,true)
+            inner.addView(txt("تفاصيل فحوص الدفع",13f,TEXT,true),match().apply{topMargin=dp(10)})
+            val checkNames=linkedMapOf(
+                "booking_amount" to "مبلغ الحجز = مبلغ الصورة",
+                "proof_amount" to "مبلغ الصورة = إشعار الهاتف",
+                "proof_vs_android_amount" to "مبلغ الصورة = إشعار الهاتف",
+                "reference" to "الرقم المرجعي مطابق",
+                "sender_phone" to "رقم المرسل مطابق",
+                "payment_account" to "حساب الاستلام مطابق",
+                "target_account" to "حساب الاستلام مثبت",
+                "target_account_exact" to "حساب الاستلام مثبت بدقة",
+                "time_window" to "التحويل داخل الفترة المسموحة",
+                "transfer_direction_ok" to "اتجاه العملية وارد للشركة",
+                "android_present" to "إشعار Android موجود"
+            )
+            val seen=HashSet<String>()
+            for((k,label) in checkNames){
+                if(!checks.has(k)||seen.contains(label)) continue
+                seen.add(label)
+                val ok=checks.optBoolean(k,false)
+                inner.addView(txt(label+"  "+if(ok)"✅ مطابق" else "❌ غير مطابق",11.5f,if(ok)GREEN else RED,!ok),match().apply{topMargin=dp(3)})
+            }
+            if(checks.length()==0) inner.addView(txt("لا توجد فحوص محفوظة بعد.",11.5f,MUTED,false),match())
+            inner.addView(txt("Gemini Vision",13f,TEXT,true),match().apply{topMargin=dp(12)})
+            addLine("المبلغ في الصورة",vision.optString("amount","غير واضح"))
+            addLine("رقم المرسل",vision.optString("sender_phone",vision.optString("sender","غير واضح")))
+            addLine("المرجع",vision.optString("reference","غير واضح"))
+            addLine("المستلم",vision.optString("recipient_phone",vision.optString("recipient","غير واضح")))
+            addLine("التاريخ / الوقت",(vision.optString("date")+" "+vision.optString("time")).trim().ifBlank{"غير واضح"})
+            addLine("الثقة",vision.optString("confidence","—"))
+            inner.addView(txt("إشعار الهاتف",13f,TEXT,true),match().apply{topMargin=dp(12)})
+            if(tx.length()==0){
+                addLine("الحالة","لا يوجد إشعار دفع مرتبط حتى الآن.",ORANGE,true)
+            }else{
+                addLine("المبلغ",tx.optString("amount","—"))
+                addLine("المرجع",tx.optString("reference","—"))
+                addLine("المرسل",tx.optString("sender_phone","—"))
+                addLine("المستلم",tx.optString("recipient_account","—"))
+                addLine("المزود",tx.optString("provider","—"))
+                addLine("التاريخ / الوقت",tx.optString("transaction_date","—")+" • "+tx.optString("transaction_time","—"))
+            }
             val image=ImageView(this@StaffTabsActivity).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.CENTER_INSIDE;minimumHeight=dp(150);setBackgroundColor(Color.parseColor(SURFACE2))}
-            val mediaUrl=proof.optString("media_url")
+            val mediaUrl=proof2.optString("mobile_media_url").ifBlank{proof2.optString("media_url")}
             if(mediaUrl.isNotBlank()){
-                inner.addView(txt("📷 صورة إثبات التحويل",13f,GREEN,true),match().apply{topMargin=dp(8)});inner.addView(image,LinearLayout.LayoutParams(-1,dp(260)).apply{topMargin=dp(6);bottomMargin=dp(6)})
-                lifecycleScope.launch{val bm=withContext(Dispatchers.IO){loadImage(mediaUrl)};if(bm!=null)image.setImageBitmap(bm)else image.setImageResource(android.R.drawable.ic_dialog_alert)}
-                image.setOnClickListener{if(image.drawable!=null)AlertDialog.Builder(this@StaffTabsActivity).setTitle("إثبات التحويل").setView(ImageView(this@StaffTabsActivity).apply{setImageDrawable(image.drawable);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER}).setPositiveButton("إغلاق",null).show()}
-            }else inner.addView(txt("📷 لا توجد صورة إثبات محفوظة لهذا الطلب.",12f,ORANGE,true),match().apply{topMargin=dp(8)})
-            scroll.addView(inner);box.addView(scroll,LinearLayout.LayoutParams(-1,dp(520)));AlertDialog.Builder(this@StaffTabsActivity).setTitle("ملف التحقق والدفع").setView(box).setPositiveButton("إغلاق",null).show()
+                inner.addView(txt("📷 صورة إثبات التحويل",13f,GREEN,true),match().apply{topMargin=dp(10)})
+                inner.addView(image,LinearLayout.LayoutParams(-1,dp(300)).apply{topMargin=dp(6);bottomMargin=dp(6)})
+                lifecycleScope.launch{
+                    val bm=withContext(Dispatchers.IO){loadImage(mediaUrl)}
+                    if(bm!=null) image.setImageBitmap(bm) else image.setImageResource(android.R.drawable.ic_dialog_alert)
+                }
+                image.setOnClickListener{
+                    if(image.drawable!=null) AlertDialog.Builder(this@StaffTabsActivity).setTitle("إثبات التحويل").setView(ImageView(this@StaffTabsActivity).apply{setImageDrawable(image.drawable);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER}).setPositiveButton("إغلاق",null).show()
+                }
+            } else inner.addView(txt("📷 لا توجد صورة إثبات محفوظة لهذا الطلب.",12f,ORANGE,true),match().apply{topMargin=dp(10)})
+            val re=button("🔎 إعادة تحليل الإثبات",GOLD,true)
+            re.setOnClickListener{
+                re.isEnabled=false;re.text="⏳ جارٍ التحليل..."
+                lifecycleScope.launch{
+                    val rr=withContext(Dispatchers.IO){StaffClient.reanalyze(this@StaffTabsActivity,id)}
+                    if(rr.ok){toast("تم تحديث تحليل الدفع.");showOperationReview(id)}else{toast(rr.error);re.isEnabled=true;re.text="🔎 إعادة تحليل الإثبات"}
+                }
+            }
+            inner.addView(re,match().apply{topMargin=dp(8)})
+            scroll.addView(inner);box.addView(scroll,LinearLayout.LayoutParams(-1,dp(620)))
+            AlertDialog.Builder(this@StaffTabsActivity).setTitle("تفاصيل التحقق من الدفع").setView(box).setPositiveButton("إغلاق",null).show()
         }
     }
+
 
     private fun showPaymentDetails(o:JSONObject){
         val m=o.optJSONObject("match")?:JSONObject();val rec=o.optJSONObject("reconciliation")?:JSONObject();val v=o.optJSONObject("payment_vision")?:rec.optJSONObject("vision")?:JSONObject()
@@ -369,7 +456,9 @@ class StaffTabsActivity : AppCompatActivity() {
     private fun loadImage(path:String):Bitmap?=runCatching{
         val base=SecureConfig.getServerUrl(this).trimEnd('/')
         val u=if(path.startsWith("http"))path else base+path
-        val cn=(URL(u).openConnection() as HttpURLConnection).apply{connectTimeout=12000;readTimeout=25000;setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity));setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))}
+        val cn=(URL(u).openConnection() as HttpURLConnection).apply{connectTimeout=12000;readTimeout=25000;setRequestProperty("Accept","image/*");setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity));setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))}
+        val code=cn.responseCode
+        if(code !in 200..299){cn.disconnect();return@runCatching null}
         val bm=cn.inputStream.use{BitmapFactory.decodeStream(it)};cn.disconnect();bm
     }.getOrNull()
 
