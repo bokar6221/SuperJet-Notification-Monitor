@@ -361,7 +361,7 @@ class StaffTabsActivity : AppCompatActivity() {
                 addLine("التاريخ / الوقت",tx.optString("transaction_date","—")+" • "+tx.optString("transaction_time","—"))
             }
             val image=ImageView(this@StaffTabsActivity).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.CENTER_INSIDE;minimumHeight=dp(150);setBackgroundColor(Color.parseColor(SURFACE2))}
-            val mediaUrl=proof2.optString("mobile_media_url").ifBlank{proof2.optString("media_url")}
+            val mediaUrl=proof2.optString("public_media_url").ifBlank{proof2.optString("mobile_media_url").ifBlank{proof2.optString("media_url")}}
             if(mediaUrl.isNotBlank()){
                 inner.addView(txt("📷 صورة إثبات التحويل",13f,GREEN,true),match().apply{topMargin=dp(10)})
                 inner.addView(image,LinearLayout.LayoutParams(-1,dp(300)).apply{topMargin=dp(6);bottomMargin=dp(6)})
