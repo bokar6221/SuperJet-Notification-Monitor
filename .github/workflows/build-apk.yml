@@ -23,16 +23,16 @@ jobs:
       - name: Build APK
         run: gradle :app:assembleDebug --no-daemon
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.6.1_STABLE_FINAL.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.6.2_OPERATION_CENTER_FINAL.apk
       - name: Package source
         run: |
-          zip -r SuperJet_Staff_v3.6.1_STABLE_FINAL_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.6.2_OPERATION_CENTER_FINAL_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v3.6.1_STABLE_FINAL
+          name: SuperJet_Staff_v3.6.2_OPERATION_CENTER_FINAL
           path: |
-            SuperJet_Staff_v3.6.1_STABLE_FINAL.apk
-            SuperJet_Staff_v3.6.1_STABLE_FINAL_SOURCE.zip
+            SuperJet_Staff_v3.6.2_OPERATION_CENTER_FINAL.apk
+            SuperJet_Staff_v3.6.2_OPERATION_CENTER_FINAL_SOURCE.zip
 
 # V3.6.2 stable: operation center proof review + customer-service approval
