@@ -1,9 +1,17 @@
 name: Build SuperJet Staff v3.6.5 GUEST CODE 300 FINAL
+      - name: Publish APK release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v3.6.5-gues-code-300 SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL.apk --title "SuperJet Staff v3.6.5 — Guest Code 300" --notes "Verified build: fixed staff display for guest booking code 300." --latest
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
