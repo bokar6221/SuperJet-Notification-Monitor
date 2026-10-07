@@ -214,7 +214,7 @@ class StaffTabsActivity : AppCompatActivity() {
         top.addView(txt(o.optString("booking_id").ifBlank{"حجز"},14f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f))
         top.addView(pill(statusText(st),statusColor(st)),wrap());b.addView(top)
         b.addView(txt(payment.first,12.5f,payment.second,true),match().apply{topMargin=dp(6)})
-        b.addView(txt(o.optString("customer_name").ifBlank{"عميل"}+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمقاعد: "+seatText(o.optString("seats_json"))+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        val guestCode=o.optString("guest_booking_code").ifBlank{"300"}\n        b.addView(txt(o.optString("customer_name").ifBlank{"عميل"}+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمقاعد: "+seatText(o.optString("seats_json"))+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})\n        if(st=="TICKET_READY"){\n            b.addView(txt("كود الحجز للغير: "+guestCode+" ✅",12f,GOLD,true),match().apply{topMargin=dp(6)})\n        }
         b.addView(txt(if(proof)"📷 إثبات التحويل: موجود — اضغط لعرضه" else "📷 إثبات التحويل: لم يصل بعد",11f,if(proof)GREEN else ORANGE,true),match().apply{topMargin=dp(6)})
         val infoRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
         val proofBtn=button(if(proof)"📷 عرض الإثبات" else "📷 ملف الدفع",BLUE,false);infoRow.addView(proofBtn,weight());proofBtn.setOnClickListener{showOperationReview(id)}
