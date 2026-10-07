@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.6.4 SUPPORT PROOF FINAL
+name: Build SuperJet Staff v3.6.5 GUEST CODE 300 FINAL
 
 on:
   workflow_dispatch:
@@ -23,10 +23,10 @@ jobs:
       - name: Build APK
         run: gradle :app:assembleDebug --no-daemon
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.6.4_SUPPORT_PROOF_FINAL.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL.apk
       - name: Package source
         run: |
-          zip -r SuperJet_Staff_v3.6.4_SUPPORT_PROOF_FINAL_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
