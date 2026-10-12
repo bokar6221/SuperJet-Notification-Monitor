@@ -54,11 +54,31 @@ class StaffTabsActivity : AppCompatActivity() {
     private var pass:TextInputEditText?=null
     private val tabs=mutableListOf<MaterialButton>()
     private var currentTab=0
+    private var managerUser=false
     private var selectedImage:Uri?=null
     private var selectedImageLabel:TextView?=null
     private val imagePicker=registerForActivityResult(ActivityResultContracts.GetContent()){u->selectedImage=u;selectedImageLabel?.text=if(u!=null)"📷 صورة مرفقة" else ""}
 
-    override fun onCreate(b:Bundle?){super.onCreate(b);NotificationStore.pruneNonPayment(this);window.statusBarColor=Color.parseColor(NAVY);window.navigationBarColor=Color.parseColor(NAVY);root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))};setContentView(root);if(SecureConfig.getToken(this).isBlank())showLogin()else{showMain();startBgService();requestNotif();handleIncomingIntent(intent)}}
+    override fun onCreate(b:Bundle?){
+        super.onCreate(b)
+        NotificationStore.pruneNonPayment(this)
+        window.statusBarColor=Color.parseColor(NAVY)
+        window.navigationBarColor=Color.parseColor(NAVY)
+        root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.parseColor(BG))}
+        setContentView(root)
+        if(SecureConfig.getToken(this).isBlank()) {
+            showLogin()
+        } else {
+            lifecycleScope.launch {
+                val profile=withContext(Dispatchers.IO){StaffClient.dashboard(this@StaffTabsActivity)}
+                managerUser=profile.ok && profile.body.optJSONObject("employee")?.optString("role")=="manager"
+                showMain()
+                startBgService()
+                requestNotif()
+                handleIncomingIntent(intent)
+            }
+        }
+    }
 
     private var lastTabLoadAt = 0L
     override fun onResume(){
@@ -90,7 +110,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val u=user?.text?.toString()?.trim().orEmpty();val p=pass?.text?.toString().orEmpty()
         if(u.isBlank()||p.isBlank()){toast("أدخل اسم المستخدم وكلمة المرور.");return}
         b.isEnabled=false
-        lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.login(this@StaffTabsActivity,u,p)};b.isEnabled=true;if(r.ok){showMain();startBgService();requestNotif()}else toast(r.error)}
+        lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.login(this@StaffTabsActivity,u,p)};b.isEnabled=true;if(r.ok){managerUser=r.body.optJSONObject("employee")?.optString("role")=="manager";showMain();startBgService();requestNotif()}else toast(r.error)}
     }
 
     private fun showMain(){
@@ -98,10 +118,13 @@ class StaffTabsActivity : AppCompatActivity() {
         val head=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(Color.parseColor(NAVY))}
         head.addView(ImageView(this).apply{setImageResource(R.drawable.superjet_logo);scaleType=ImageView.ScaleType.CENTER_INSIDE},lp(44,44).apply{marginEnd=dp(8)})
         val h=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};h.addView(txt("SuperJet Staff",20f,TEXT,true),match());statusView=txt("متصل • خدمة التنبيهات مفعلة",10.5f,GREEN,false);h.addView(statusView,match());head.addView(h,LinearLayout.LayoutParams(0,-2,1f))
-        val out=button("خروج",RED,false);head.addView(out,wrap());out.setOnClickListener{SecureConfig.clearToken(this);stopBgService();showLogin()};root.addView(head,match())
+        val out=button("خروج",RED,false);head.addView(out,wrap());out.setOnClickListener{SecureConfig.clearToken(this);managerUser=false;currentTab=0;stopBgService();showLogin()};root.addView(head,match())
         val tabScroll=HorizontalScrollView(this).apply{isHorizontalScrollBarEnabled=false;setBackgroundColor(Color.parseColor("#0B1622"))}
         val bar=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(7),dp(8),dp(8))}
-        listOf("🔔 الإشعارات","💬 المحادثات","📋 عمليات الحجز","💰 المدفوعات").forEachIndexed{i,t->val b=button(t,if(i==0)GOLD else SURFACE,i==0);b.textSize=12f;minTabWidth(b);tabs.add(b);bar.addView(b,LinearLayout.LayoutParams(dp(118),dp(54)).apply{if(i>0)marginStart=dp(7)});b.setOnClickListener{selectTab(i)}};tabScroll.addView(bar);root.addView(tabScroll,match())
+        val tabLabels=mutableListOf("🔔 الإشعارات","💬 المحادثات","📋 عمليات الحجز","💰 المدفوعات")
+        if(managerUser) tabLabels.add("📊 إحصاءات المدير")
+        if(currentTab>=tabLabels.size) currentTab=0
+        tabLabels.forEachIndexed{i,t->val on=i==currentTab;val b=button(t,if(on)GOLD else SURFACE,on);b.textSize=12f;minTabWidth(b);tabs.add(b);bar.addView(b,LinearLayout.LayoutParams(dp(118),dp(54)).apply{if(i>0)marginStart=dp(7)});b.setOnClickListener{selectTab(i)}};tabScroll.addView(bar);root.addView(tabScroll,match())
         content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(8),dp(10),dp(20))};root.addView(ScrollView(this).apply{isFillViewport=true;addView(content)},LinearLayout.LayoutParams(-1,0,1f));selectTab(currentTab)
     }
 
@@ -119,7 +142,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val now=System.currentTimeMillis()
         if(!force && now-lastTabLoadAt<1200L) return
         lastTabLoadAt=now
-        when(currentTab){0->loadNotifications();1->loadChats();2->loadBookingOperations();3->loadPayments()}
+        when(currentTab){0->loadNotifications();1->loadChats();2->loadBookingOperations();3->loadPayments();4->loadManagerStats()}
     }
 
     private fun loadNotifications(){
@@ -264,6 +287,85 @@ class StaffTabsActivity : AppCompatActivity() {
         }
     }
 
+    private fun loadManagerStats(){
+        if(!managerUser){
+            clear()
+            content?.addView(empty("إحصاءات جميع الموظفين مخصصة لحساب المدير فقط."),match())
+            return
+        }
+        clear()
+        content?.addView(title("إحصاءات المدير","أرقام الخادم الفعلية؛ نفرّق بين طلبات الموقع وعمليات الموظفين والتذاكر والمقاعد."))
+        content?.addView(empty("جارٍ تحميل الإحصاءات..."),match())
+        lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){apiGet("/api/mobile/manager-statistics")}
+            clear()
+            content?.addView(title("إحصاءات المدير","طلبات الموقع ليست هي نفسها العمليات أو التذاكر الصادرة. المقعد يُحسب من قائمة المقاعد داخل الحجز."))
+            val refresh=button("تحديث الإحصاءات ⟳",GOLD,true)
+            content?.addView(refresh,match().apply{bottomMargin=dp(10)})
+            refresh.setOnClickListener{loadManagerStats()}
+            if(!r.ok){
+                val message=when{
+                    r.error.contains("MANAGER_REQUIRED")->"هذا الحساب ليس حساب مدير."
+                    r.error.contains("404")->"واجهة إحصاءات المدير لم تُفعّل على الخادم بعد. حدّث خدمة SuperJet إلى النسخة التي تتضمن /api/mobile/manager-statistics."
+                    else->"تعذر تحميل الإحصاءات: "+r.error
+                }
+                content?.addView(empty(message),match())
+                return@launch
+            }
+            val s=r.body.optJSONObject("summary")?:JSONObject()
+            val today=s.optJSONObject("today")?:JSONObject()
+            val month=s.optJSONObject("month")?:JSONObject()
+            val all=s.optJSONObject("all_time")?:JSONObject()
+            fun addPeriod(label:String,d:JSONObject){
+                content?.addView(txt(label,16f,TEXT,true),match().apply{topMargin=dp(10);bottomMargin=dp(6)})
+                val metrics=listOf(
+                    Triple("طلبات الحجز في الموقع",d.optInt("booking_requests"),BLUE),
+                    Triple("عمليات الحجز المسجلة",d.optInt("booking_operations"),GOLD),
+                    Triple("التذاكر الصادرة",d.optInt("issued_tickets"),GREEN),
+                    Triple("العمليات المرفوضة",d.optInt("rejected_operations"),RED),
+                    Triple("المقاعد المطلوبة داخل العمليات",d.optInt("requested_seats"),BLUE),
+                    Triple("المقاعد الفعلية داخل التذاكر الصادرة",d.optInt("issued_seats"),GREEN)
+                )
+                metrics.forEach{(metricLabel,value,color)->
+                    content?.addView(summary(metricLabel,value.toString(),color),match().apply{bottomMargin=dp(6)})
+                }
+            }
+            addPeriod("ملخص اليوم",today)
+            addPeriod("ملخص الشهر الحالي",month)
+            addPeriod("الإجمالي منذ بداية السجل",all)
+            content?.addView(txt("إحصاءات كل موظف",19f,TEXT,true),match().apply{topMargin=dp(18);bottomMargin=dp(8)})
+            content?.addView(txt("عمليات الحجز = عدد سجلات العمليات، والتذكرة الصادرة = عملية حالتها TICKET_READY. المقاعد تُحسب من أرقام المقاعد الفعلية، وليس من عدد الأشخاص.",11f,MUTED,false),match().apply{bottomMargin=dp(10)})
+            val employees=r.body.optJSONArray("employees")?:JSONArray()
+            if(employees.length()==0){
+                content?.addView(empty("لا توجد إحصاءات موظفين حتى الآن."),match())
+            }else{
+                for(i in 0 until employees.length()){
+                    val e=employees.optJSONObject(i)?:continue
+                    val empCard=card(SURFACE,17f)
+                    val body=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(11),dp(12),dp(11))}
+                    val name=e.optString("name").ifBlank{"موظف بدون اسم"}
+                    val shift=e.optString("shift_name").ifBlank{"بدون شفت"}
+                    body.addView(txt(name,15f,TEXT,true),match())
+                    body.addView(txt(shift+" • "+e.optString("status").ifBlank{"—"}+" • "+if(e.optBoolean("active",true))"نشط" else "غير نشط",10.5f,MUTED,false),match().apply{topMargin=dp(3);bottomMargin=dp(7)})
+                    fun employeePeriod(label:String,key:String){
+                        val d=e.optJSONObject(key)?:JSONObject()
+                        val line=label+" — عمليات: "+d.optInt("booking_operations")+
+                            " | تذاكر صادرة: "+d.optInt("issued_tickets")+
+                            " | مرفوض: "+d.optInt("rejected_operations")+
+                            " | مقاعد مطلوبة: "+d.optInt("requested_seats")+
+                            " | مقاعد صادرة: "+d.optInt("issued_seats")
+                        body.addView(txt(line,11.2f,MUTED,false),match().apply{topMargin=dp(5)})
+                    }
+                    employeePeriod("اليوم","today")
+                    employeePeriod("الشهر","month")
+                    employeePeriod("الإجمالي","all_time")
+                    empCard.addView(body)
+                    content?.addView(empCard,match().apply{bottomMargin=dp(8)})
+                }
+            }
+            content?.addView(txt("آخر تحديث: "+r.body.optString("as_of").ifBlank{"—"},10f,MUTED,false),match().apply{topMargin=dp(12)})
+        }
+    }
     private fun paymentCard(o:JSONObject)=card(SURFACE,17f).apply{
         val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val terminal=st=="TICKET_READY"||st=="PAYMENT_REJECTED";val proof=o.optBoolean("proof_available",false)
         val payment=compactPaymentResult(o)
