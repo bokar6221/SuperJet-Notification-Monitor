@@ -33,3 +33,10 @@ https://superjet.tail0f920c.ts.net:8443
 - The build checks backend Python syntax and verifies the Android/backend manager-statistics endpoint contract before building.
 - The APK is rebuilt from the entire Android project; it is not a patch APK.
 - See `RELEASE_GUIDE_v3.7.1.md` for installation and server-deployment requirements, including the debug-signature upgrade caveat.
+
+
+## Version 3.8.5 — full integrated mobile build
+- Uses the provider-aware payment notification parser from the full SuperJet V37.8.4/V37.8.5 source.
+- Hides approved/rejected items from the booking decision queue, refreshes after every decision attempt, and retains final records in Payments.
+- Includes manager-only daily/monthly/all-time counts for booking requests, operations, issued ticket records, rejected operations, and actual reserved seats.
+- This is an Android source/APK repository only; the full Windows project archive is distributed separately.
