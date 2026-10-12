@@ -26,3 +26,10 @@ https://superjet.tail0f920c.ts.net:8443
 - Shows today, current month, all-time figures, and per-employee totals.
 - Seat totals are derived from the unique selected seat identifiers saved for each operation, rather than counting one booking as one seat.
 - Requires the matching SuperJet server update from the `feature/mobile-manager-seat-stats` branch to be deployed before this screen can load data.
+
+
+## Version 3.7.1 — Full consolidated package
+- A single downloadable bundle now contains the full Android APK, full Android source archive, the matching SuperJet server source archive, a deployment/install guide, and SHA-256 checksums.
+- The build checks backend Python syntax and verifies the Android/backend manager-statistics endpoint contract before building.
+- The APK is rebuilt from the entire Android project; it is not a patch APK.
+- See `RELEASE_GUIDE_v3.7.1.md` for installation and server-deployment requirements, including the debug-signature upgrade caveat.

@@ -10,8 +10,8 @@ android {
         applicationId = "com.superjet.notificationmonitor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "3.7.0-MANAGER-SEAT-STATS"
+        versionCode = 23
+        versionName = "3.7.1-FULL-CONSOLIDATED"
         buildConfigField("String", "SUPERJET_BASE_URL", "\"https://superjet.tail0f920c.ts.net:8443\"")
     }
     compileOptions {

@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.7.0 Manager Seat Stats
+name: Build SuperJet Staff v3.7.1 FULL CONSOLIDATED
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout
+      - name: Checkout Android source
         uses: actions/checkout@v4
 
       - name: Set up JDK
@@ -26,27 +26,86 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build APK
-        run: gradle :app:assembleDebug --no-daemon
+      - name: Checkout current SuperJet server source
+        uses: actions/checkout@v4
+        with:
+          repository: bokar6221/superjet
+          ref: main
+          path: server-source
 
-      - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS.apk
-
-      - name: Package source
+      - name: Verify backend Python syntax
         run: |
-          zip -r SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
+          python -m py_compile server-source/webbooking/staff_portal.py server-source/webbooking/integrated_operations.py
+          python - <<'PY'
+          from pathlib import Path
+          backend = Path("server-source/webbooking/staff_portal.py").read_text(encoding="utf-8")
+          android = Path("app/src/main/java/com/superjet/notificationmonitor/StaffTabsActivity.kt").read_text(encoding="utf-8")
+          assert "@bp.get('/api/mobile/manager-statistics')" in backend
+          assert "if not _is_manager(emp)" in backend
+          assert "issued_seats" in backend
+          assert '"/api/mobile/manager-statistics"' in android
+          assert "private fun loadManagerStats()" in android
+          print("Backend syntax and Android/backend statistics contract checks passed.")
+          PY
 
-      - name: Upload artifact
+      - name: Build APK and run Android unit-test task
+        run: gradle :app:assembleDebug :app:testDebugUnitTest --no-daemon
+
+      - name: Name and verify APK
+        run: |
+          APK="SuperJet_Staff_v3.7.1_FULL_CONSOLIDATED.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$APK"
+          SIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$SIGNER"
+          "$SIGNER" verify --verbose "$APK"
+          unzip -t "$APK" >/dev/null
+
+      - name: Package complete Android source
+        run: |
+          zip -r SuperJet_Staff_v3.7.1_ANDROID_SOURCE.zip . \
+            -x ".git/*" "server-source/*" "app/build/*" ".gradle/*" \
+               "SuperJet_Staff_v3.7.1_*" "RELEASE_GUIDE_v3.7.1.md"
+
+      - name: Package complete server source
+        run: |
+          cd server-source
+          zip -r ../SuperJet_Server_v3.7.1_FULL_SOURCE.zip \
+            Dockerfile Procfile app.py requirements.txt runtime.txt static templates webbooking \
+            -x "*/__pycache__/*" "*.pyc" "*.db" "*.log"
+
+      - name: Prepare one complete release bundle
+        run: |
+          mkdir -p full-release
+          cp SuperJet_Staff_v3.7.1_FULL_CONSOLIDATED.apk full-release/
+          cp SuperJet_Staff_v3.7.1_ANDROID_SOURCE.zip full-release/
+          cp SuperJet_Server_v3.7.1_FULL_SOURCE.zip full-release/
+          cp RELEASE_GUIDE_v3.7.1.md full-release/
+          (cd full-release && sha256sum * > SHA256SUMS.txt)
+          cp full-release/SHA256SUMS.txt .
+          (cd full-release && zip -9 -r ../SuperJet_Complete_v3.7.1_FULL_PACKAGE.zip .)
+
+      - name: Upload complete build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS-${{ github.run_number }}
+          name: SuperJet_Complete_v3.7.1_FULL_PACKAGE-${{ github.run_number }}
           path: |
-            SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS.apk
-            SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS_SOURCE.zip
+            SuperJet_Staff_v3.7.1_FULL_CONSOLIDATED.apk
+            SuperJet_Staff_v3.7.1_ANDROID_SOURCE.zip
+            SuperJet_Server_v3.7.1_FULL_SOURCE.zip
+            SuperJet_Complete_v3.7.1_FULL_PACKAGE.zip
+            SHA256SUMS.txt
 
-      - name: Publish APK release asset
+      - name: Publish full release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v3.7.0-manager-seat-stats-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS.apk --title "SuperJet Staff v3.7.0 — Manager Seat Stats (build ${GITHUB_RUN_NUMBER})" --notes "Manager-only operational dashboard separates web booking requests, operations, issued ticket records, rejected operations, and actual seat counts. Requires the matching SuperJet backend endpoint to be deployed." --latest
+          TAG="v3.7.1-full-consolidated-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" \
+            SuperJet_Staff_v3.7.1_FULL_CONSOLIDATED.apk \
+            SuperJet_Staff_v3.7.1_ANDROID_SOURCE.zip \
+            SuperJet_Server_v3.7.1_FULL_SOURCE.zip \
+            SuperJet_Complete_v3.7.1_FULL_PACKAGE.zip \
+            SHA256SUMS.txt \
+            --title "SuperJet Full Consolidated v3.7.1 (build ${GITHUB_RUN_NUMBER})" \
+            --notes "Full consolidated SuperJet Staff Android build plus Android source and matching SuperJet server source. Manager seat statistics endpoint included in server source. Check RELEASE_GUIDE_v3.7.1.md in the full bundle; existing server data/configuration must be preserved." \
+            --latest
