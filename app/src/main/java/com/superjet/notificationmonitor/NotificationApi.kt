@@ -34,8 +34,8 @@ object NotificationApi{
             put("event_id",item.eventId);put("package",item.packageName);put("package_name",item.packageName)
             put("app_label",item.app);put("app",item.app);put("title",item.title);put("text",item.text);put("raw_notification",item.text)
             if(item.amount!=null)put("amount",item.amount);put("reference",item.reference);put("sender_phone",item.senderPhone)
-            put("recipient_phone",item.recipientAccount);put("transaction_date",item.transactionDate);put("transaction_time",item.transactionTime)
-            put("transaction_type",item.transactionType);put("provider",item.provider);put("parse_status",item.parseStatus);put("received_at",received)
+            put("recipient_phone",item.recipientAccount);put("sender_identifier",item.senderIdentifier);put("transaction_date",item.transactionDate);put("transaction_time",item.transactionTime)
+            put("transaction_type",item.transactionType);put("provider",item.provider);put("parse_status",item.parseStatus);put("is_payment_notification",item.isPaymentNotification);put("received_at",received)
         }
         return try{
             cn.outputStream.use{it.write(j.toString().toByteArray(Charsets.UTF_8))}
