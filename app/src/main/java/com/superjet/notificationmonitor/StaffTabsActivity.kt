@@ -163,13 +163,30 @@ class StaffTabsActivity : AppCompatActivity() {
     }
 
     private fun renderLocalNotifications(a:List<NotificationItem>){
-        for(n in a.take(20))content?.addView(card(SURFACE2,16f).apply{addView(txt(provider(n.provider)+"\n"+(n.amount?.let{fmt(it)+" جنيه"}?:"المبلغ غير مستخرج")+"\nالمرجع: "+n.reference.ifBlank{"—"}+"\n"+if(n.synced)"مزامنة ناجحة ✅" else if(n.syncError.isBlank())"بانتظار المزامنة" else "فشل: "+n.syncError,12f,TEXT,false).apply{setPadding(dp(12),dp(10),dp(12),dp(10))})},match().apply{bottomMargin=dp(7)})
+        for(n in a.take(20)){
+            val amount=n.amount?.let{fmt(it)+" جنيه"}?:"المبلغ غير مستخرج"
+            val sender=n.senderPhone.ifBlank{n.senderIdentifier}.ifBlank{"غير مستخرج"}
+            val recipient=n.recipientAccount.ifBlank{"غير مستخرج"}
+            val state=if(n.parseStatus=="PARSED")"تم استخراج البيانات" else "استخراج جزئي — يلزم مراجعة الإشعار"
+            val syncState=if(n.synced)"مزامنة ناجحة ✅" else if(n.syncError.isBlank())"بانتظار المزامنة" else "فشل: "+n.syncError
+            val body=provider(n.provider)+"\nالمبلغ: "+amount+"\nالمرسل/معرّفه: "+sender+"\nالمستلم: "+recipient+"\nالمرجع: "+n.reference.ifBlank{"—"}+"\n"+state+" • "+syncState
+            content?.addView(card(SURFACE2,16f).apply{addView(txt(body,12f,TEXT,false).apply{setPadding(dp(12),dp(10),dp(12),dp(10))})},match().apply{bottomMargin=dp(7)})
+        }
     }
 
     private fun notificationCard(o:JSONObject)=card(SURFACE2,16f).apply{
-        val s=o.optString("provider").ifBlank{o.optString("app_label").ifBlank{"إشعار دفع"}}
-        val amount=o.optDouble("amount",Double.NaN);val ref=o.optString("reference")
-        addView(txt(s+"\n"+if(amount.isNaN())"المبلغ غير مستخرج" else fmt(amount)+" جنيه"+"\nالمرجع: "+ref.ifBlank{"—"}+"\n"+o.optString("parse_status"),12f,TEXT,false).apply{setPadding(dp(12),dp(10),dp(12),dp(10))})
+        val raw=runCatching{JSONObject(o.optString("raw_json","{}"))}.getOrElse{JSONObject()}
+        val source=o.optString("provider").ifBlank{o.optString("app_label").ifBlank{"إشعار دفع"}}
+        val amount=o.optDouble("amount",Double.NaN)
+        val ref=o.optString("reference")
+        val sender=o.optString("sender_phone").ifBlank{o.optString("sender_identifier").ifBlank{raw.optString("sender_identifier")}}
+        val recipient=o.optString("recipient_account").ifBlank{o.optString("recipient_phone")}
+        val txn=o.optString("transaction_type").ifBlank{raw.optString("transaction_type")}
+        val parseState=o.optString("parse_status").ifBlank{raw.optString("parse_status").ifBlank{"PARTIAL"}}
+        val state=if(parseState=="PARSED")"تم استخراج البيانات" else "استخراج جزئي — راجع المبلغ والمرسل قبل المطابقة"
+        val amountText=if(amount.isNaN())"غير مستخرج" else fmt(amount)+" جنيه"
+        val text=source+"\nالمبلغ: "+amountText+"\nنوع العملية: "+txn.ifBlank{"غير محدد"}+"\nالمرسل/معرّفه: "+sender.ifBlank{"غير مستخرج"}+"\nالمستلم: "+recipient.ifBlank{"غير مستخرج"}+"\nالمرجع: "+ref.ifBlank{"—"}+"\n"+state
+        addView(txt(text,12f,TEXT,false).apply{setPadding(dp(12),dp(10),dp(12),dp(10))})
     }
 
     private fun clearNotificationHistory(){
@@ -429,6 +446,7 @@ class StaffTabsActivity : AppCompatActivity() {
             addLine("الموعد",o.optString("travel_date")+" • "+o.optString("travel_time"))
             addLine("المقاعد",seatText(o.optString("seats_json")))
             addLine("مبلغ الحجز",fmt(o.optDouble("amount",0.0))+" جنيه",GOLD,true)
+            addLine("كود الحجز للغير",o.optString("guest_booking_code").ifBlank{"300"},GOLD,true)
             addLine("وسيلة الدفع",o.optString("payment_method").ifBlank{"—"})
             addLine("حالة المطابقة",match.optString("status").ifBlank{"PENDING"}+" • "+match.optString("reason").ifBlank{"في انتظار اكتمال الأدلة"},payment.second,true)
             inner.addView(txt("تفاصيل فحوص الدفع",13f,TEXT,true),match().apply{topMargin=dp(10)})
@@ -466,7 +484,7 @@ class StaffTabsActivity : AppCompatActivity() {
             }else{
                 addLine("المبلغ",tx.optString("amount","—"))
                 addLine("المرجع",tx.optString("reference","—"))
-                addLine("المرسل",tx.optString("sender_phone","—"))
+                addLine("المرسل/المعرّف",tx.optString("sender_phone").ifBlank{tx.optString("sender_identifier","—")})
                 addLine("المستلم",tx.optString("recipient_account","—"))
                 addLine("المزود",tx.optString("provider","—"))
                 addLine("التاريخ / الوقت",tx.optString("transaction_date","—")+" • "+tx.optString("transaction_time","—"))
@@ -520,7 +538,7 @@ class StaffTabsActivity : AppCompatActivity() {
             append("المرجع: ").append(v.optString("reference","غير واضح")).append("\n")
             append("المستلم: ").append(v.optString("recipient_phone",v.optString("recipient","غير واضح"))).append("\n")
             append("الثقة: ").append(v.optString("confidence","—")).append("\n\n")
-            if(tx0.length()>0){append("إشعار الهاتف\nالمبلغ: ").append(tx0.optString("amount","—")).append("\nالمرجع: ").append(tx0.optString("reference","—")).append("\nالمرسل: ").append(tx0.optString("sender_phone","—")).append("\nالمستلم: ").append(tx0.optString("recipient_account","—")).append("\n")}
+            if(tx0.length()>0){append("إشعار الهاتف\nالمبلغ: ").append(tx0.optString("amount","—")).append("\nالمرجع: ").append(tx0.optString("reference","—")).append("\nالمرسل/المعرّف: ").append(tx0.optString("sender_phone").ifBlank{tx0.optString("sender_identifier","—")}).append("\nالمستلم: ").append(tx0.optString("recipient_account","—")).append("\n")}
             val missing=checks.keys().asSequence().filter{!checks.optBoolean(it)}.map{it}.toList()
             if(missing.isNotEmpty())append("\nبيانات ناقصة: ").append(missing.joinToString("، "))
         }

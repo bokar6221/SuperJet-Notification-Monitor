@@ -40,3 +40,10 @@ https://superjet.tail0f920c.ts.net:8443
 - Hides approved/rejected items from the booking decision queue, refreshes after every decision attempt, and retains final records in Payments.
 - Includes manager-only daily/monthly/all-time counts for booking requests, operations, issued ticket records, rejected operations, and actual reserved seats.
 - This is an Android source/APK repository only; the full Windows project archive is distributed separately.
+
+
+## Version 3.8.6 — complete project Android component
+- Shows provider, amount, transaction direction, sender or sender identifier, recipient, reference, and parsing status for notification records.
+- Booking queue displays only operations that require a decision; approved/rejected records stay available in Payments history.
+- Fresh APK build validates Android package signature and ZIP integrity.
+- This repository contains the Android app; the full Windows SuperJet project bundle is distributed separately and contains the matching backend source.

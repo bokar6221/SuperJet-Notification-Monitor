@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.8.5 Full Integrated
+name: Build SuperJet Staff v3.8.6 Full Project Final
 
 on:
   workflow_dispatch:
@@ -23,29 +23,29 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
-      - name: Build Android APK and unit-test task
+      - name: Build APK and unit-test task
         run: gradle :app:assembleDebug :app:testDebugUnitTest --no-daemon
       - name: Rename and verify APK
         run: |
-          APK="SuperJet_Staff_v3.8.5_FULL_INTEGRATED.apk"
+          APK="SuperJet_Staff_v3.8.6_FULL_PROJECT_FINAL.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK"
           SIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$SIGNER"
           "$SIGNER" verify --verbose "$APK"
           unzip -t "$APK" >/dev/null
-      - name: Package Android source
+      - name: Package matching Android source
         run: |
-          zip -r SuperJet_Staff_v3.8.5_ANDROID_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.8.6_ANDROID_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v3.8.5_FULL_INTEGRATED-${{ github.run_number }}
+          name: SuperJet_Staff_v3.8.6_FULL_PROJECT_FINAL-${{ github.run_number }}
           path: |
-            SuperJet_Staff_v3.8.5_FULL_INTEGRATED.apk
-            SuperJet_Staff_v3.8.5_ANDROID_SOURCE.zip
+            SuperJet_Staff_v3.8.6_FULL_PROJECT_FINAL.apk
+            SuperJet_Staff_v3.8.6_ANDROID_SOURCE.zip
       - name: Publish APK release asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v3.8.5-full-integrated-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG"             SuperJet_Staff_v3.8.5_FULL_INTEGRATED.apk             SuperJet_Staff_v3.8.5_ANDROID_SOURCE.zip             --title "SuperJet Staff v3.8.5 Full Integrated (build ${GITHUB_RUN_NUMBER})"             --notes "Fresh Android build using the provider-aware payment notification parser and manager-only operational statistics. The full Windows project package is distributed separately; deploy its matching server source for manager statistics."             --latest
+          TAG="v3.8.6-full-project-final-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG"             SuperJet_Staff_v3.8.6_FULL_PROJECT_FINAL.apk             SuperJet_Staff_v3.8.6_ANDROID_SOURCE.zip             --title "SuperJet Staff v3.8.6 Full Project Final (build ${GITHUB_RUN_NUMBER})"             --notes "Android app from the full project release: provider-aware payment notification details, manager-only seat statistics, decision-only booking queue, and current parser. Full Windows SuperJet project source is distributed separately."             --latest
