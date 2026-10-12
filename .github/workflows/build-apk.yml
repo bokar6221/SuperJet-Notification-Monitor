@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.6.5 GUEST CODE 300 FINAL
+name: Build SuperJet Staff v3.7.0 Manager Seat Stats
 
 on:
   workflow_dispatch:
@@ -30,24 +30,23 @@ jobs:
         run: gradle :app:assembleDebug --no-daemon
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS.apk
 
       - name: Package source
         run: |
-          zip -r SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL
+          name: SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS-${{ github.run_number }}
           path: |
-            SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL.apk
-            SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL_SOURCE.zip
+            SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS.apk
+            SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS_SOURCE.zip
 
       - name: Publish APK release asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v3.6.5-guest-code-300 SuperJet_Staff_v3.6.5_GUEST_CODE_300_FINAL.apk --title "SuperJet Staff v3.6.5 — Guest Code 300" --notes "Verified build: fixed staff display for guest booking code 300." --latest
-
-# V36.9 staff build: fixed guest booking code 300 display
+          TAG="v3.7.0-manager-seat-stats-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" SuperJet_Staff_v3.7.0_MANAGER_SEAT_STATS.apk --title "SuperJet Staff v3.7.0 — Manager Seat Stats (build ${GITHUB_RUN_NUMBER})" --notes "Manager-only operational dashboard separates web booking requests, operations, issued ticket records, rejected operations, and actual seat counts. Requires the matching SuperJet backend endpoint to be deployed." --latest
