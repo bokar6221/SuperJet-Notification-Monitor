@@ -204,18 +204,17 @@ class StaffTabsActivity : AppCompatActivity() {
     }
 
     private fun loadBookingOperations(){
-        clear();content?.addView(title("عمليات الحجز","الحالية التي تحتاج قرارًا والمنتهية بالنجاح أو الرفض."))
+        clear();content?.addView(title("عمليات الحجز","تعرض هذه القائمة العمليات التي تحتاج قرارًا فقط. بعد الاعتماد أو الرفض تختفي من هنا، ويظل سجلها في تبويب المدفوعات."))
         lifecycleScope.launch{
             val r=withContext(Dispatchers.IO){apiGet("/api/mobile/booking-operations")}
             if(!r.ok){content?.addView(empty("تعذر تحميل عمليات الحجز: "+r.error));return@launch}
             val current=r.body.optJSONArray("current")?:JSONArray()
-            val completed=r.body.optJSONArray("completed")?:JSONArray()
-            content?.addView(txt("الحالية — تحتاج تأكيد أو رفض (${current.length()})",16f,TEXT,true),match().apply{bottomMargin=dp(7)})
-            if(current.length()==0) content?.addView(empty("لا توجد عمليات حجز تحتاج قرارًا حاليًا."),match().apply{bottomMargin=dp(10)})
-            else for(i in 0 until current.length()) content?.addView(bookingOperationCard(current.optJSONObject(i)?:continue,false),match().apply{bottomMargin=dp(8)})
-            content?.addView(txt("المنتهية (${completed.length()})",16f,TEXT,true),match().apply{topMargin=dp(8);bottomMargin=dp(7)})
-            if(completed.length()==0) content?.addView(empty("لا توجد عمليات منتهية."),match())
-            else for(i in 0 until completed.length()) content?.addView(bookingOperationCard(completed.optJSONObject(i)?:continue,true),match().apply{bottomMargin=dp(8)})
+            content?.addView(txt("عمليات تحتاج قرارًا (${current.length()})",16f,TEXT,true),match().apply{bottomMargin=dp(7)})
+            if(current.length()==0) {
+                content?.addView(empty("لا توجد عمليات تحتاج تأكيدًا أو رفضًا حاليًا.\nالعمليات المنتهية محفوظة للمراجعة في تبويب المدفوعات."),match())
+            } else {
+                for(i in 0 until current.length()) content?.addView(bookingOperationCard(current.optJSONObject(i)?:continue,false),match().apply{bottomMargin=dp(8)})
+            }
         }
     }
 
@@ -260,15 +259,21 @@ class StaffTabsActivity : AppCompatActivity() {
     }
 
     private fun approveFromOperations(id:String){
-        lifecycleScope.launch{val r=withContext(Dispatchers.IO){StaffClient.approve(this@StaffTabsActivity,id)}
-            toast(if(r.ok)"تم الاعتماد وإصدار التذكرة في «تذكرتي»." else r.error);if(r.ok)loadBookingOperations()
+        lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){StaffClient.approve(this@StaffTabsActivity,id)}
+            toast(if(r.ok)"تم الاعتماد وإصدار التذكرة في «تذكرتي»." else r.error)
+            // The server may commit the approval before a later finalization response fails.
+            // Always refresh so committed terminal decisions disappear immediately.
+            loadBookingOperations()
         }
     }
     private fun rejectFromOperations(id:String){
         val e=EditText(this).apply{hint="سبب الرفض";setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED));minLines=2}
         AlertDialog.Builder(this).setTitle("رفض الحجز").setView(e).setPositiveButton("رفض"){_,_->lifecycleScope.launch{
             val r=withContext(Dispatchers.IO){StaffClient.reject(this@StaffTabsActivity,id,e.text.toString().ifBlank{"رفض موظف"})}
-            toast(if(r.ok)"تم رفض العملية وحفظها ضمن المنتهية." else r.error);if(r.ok)loadBookingOperations()
+            toast(if(r.ok)"تم رفض العملية وحفظها في سجل المدفوعات." else r.error)
+            // Refresh even after a network error; the decision may already be committed.
+            loadBookingOperations()
         }}.setNegativeButton("إلغاء",null).show()
     }
     private fun loadPayments(){
