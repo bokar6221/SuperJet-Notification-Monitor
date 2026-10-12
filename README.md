@@ -19,3 +19,10 @@
 https://superjet.tail0f920c.ts.net:8443
 
 لا يحتوي APK على كلمة مرور الموظف أو Token ثابت للدفع أو Telegram Token؛ يتم الحصول على جلسة بعد تسجيل الدخول.
+
+## Version 3.7.0 — Manager seat statistics
+- Manager-only statistics screen backed by `/api/mobile/manager-statistics`.
+- Separates raw website booking requests, employee booking operations, issued-ticket operations, rejected operations, requested seats, and issued seats.
+- Shows today, current month, all-time figures, and per-employee totals.
+- Seat totals are derived from the unique selected seat identifiers saved for each operation, rather than counting one booking as one seat.
+- Requires the matching SuperJet server update from the `feature/mobile-manager-seat-stats` branch to be deployed before this screen can load data.
