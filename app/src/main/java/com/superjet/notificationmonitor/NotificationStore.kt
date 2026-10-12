@@ -21,6 +21,7 @@ data class NotificationItem(
     val transactionTime: String,
     val parseStatus: String,
     val isPaymentNotification: Boolean,
+    val senderIdentifier: String = "",
     val synced: Boolean = false,
     val syncError: String = ""
 )
@@ -87,6 +88,7 @@ object NotificationStore {
                     reference = o.optString("reference"),
                     senderPhone = o.optString("senderPhone"),
                     recipientAccount = o.optString("recipientAccount"),
+                    senderIdentifier = o.optString("senderIdentifier"),
                     transactionDate = o.optString("transactionDate"),
                     transactionTime = o.optString("transactionTime"),
                     parseStatus = o.optString("parseStatus"),
@@ -100,9 +102,26 @@ object NotificationStore {
     }
 
     @Synchronized fun pruneNonPayment(context: Context) {
+        // Re-parse items saved by older APKs. Previous builds could mistake ads or WhatsApp chats for wallet notices.
         val prefs=context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val old=JSONArray(prefs.getString(KEY,"[]"));val arr=JSONArray()
-        for(i in 0 until old.length()){val o=old.getJSONObject(i);if(o.optBoolean("isPaymentNotification",false)&&isAllowedProvider(o.optString("provider")))arr.put(o)}
+        for(i in 0 until old.length()){
+            val o=old.optJSONObject(i)?:continue
+            val app=o.optString("app")
+            val pkg=o.optString("packageName")
+            val title=o.optString("title")
+            val text=o.optString("text")
+            val parsed=NotificationParserEngine.parse(app,pkg,title,text)
+            if(!parsed.isPaymentNotification || !isAllowedProvider(parsed.provider)) continue
+            val corrected=NotificationItem(
+                eventId=o.optString("eventId"),app=app,packageName=pkg,title=title,text=text,time=o.optLong("time"),
+                provider=parsed.provider,transactionType=parsed.transactionType,amount=parsed.amount,reference=parsed.reference,
+                senderPhone=parsed.senderPhone,recipientAccount=parsed.recipientAccount,transactionDate=parsed.transactionDate,
+                transactionTime=parsed.transactionTime,parseStatus=parsed.status,isPaymentNotification=true,
+                senderIdentifier=parsed.senderIdentifier,synced=o.optBoolean("synced",false),syncError=o.optString("syncError")
+            )
+            arr.put(toJson(corrected))
+        }
         prefs.edit().putString(KEY,arr.toString()).apply()
     }
 
@@ -129,6 +148,7 @@ object NotificationStore {
             put("reference", item.reference)
             put("senderPhone", item.senderPhone)
             put("recipientAccount", item.recipientAccount)
+            put("senderIdentifier", item.senderIdentifier)
             put("transactionDate", item.transactionDate)
             put("transactionTime", item.transactionTime)
             put("parseStatus", item.parseStatus)

@@ -51,6 +51,7 @@ class NotificationReaderService : NotificationListenerService() {
             reference = parsed.reference,
             senderPhone = parsed.senderPhone,
             recipientAccount = parsed.recipientAccount,
+            senderIdentifier = parsed.senderIdentifier,
             transactionDate = parsed.transactionDate,
             transactionTime = parsed.transactionTime,
             parseStatus = parsed.status,
