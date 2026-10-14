@@ -47,5 +47,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v3.8.7-full-project-final-${GITHUB_RUN_NUMBER}"
+          TAG="v3.8.7-shared-instapay-heartbeat-${GITHUB_RUN_NUMBER}"
           gh release create "$TAG"             SuperJet_Staff_v3.8.7_SHARED_INSTAPAY_HEARTBEAT.apk             SuperJet_Staff_v3.8.7_ANDROID_SOURCE.zip             --title "SuperJet Staff v3.8.7 Shared InstaPay & Online Heartbeat (build ${GITHUB_RUN_NUMBER})"             --notes "Android update: sticky foreground notification service, employee heartbeat while active, pending shared-InstaPay queue catch-up, and unread customer chat catch-up. Matching Android source is attached."             --latest
