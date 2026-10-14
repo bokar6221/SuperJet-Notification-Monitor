@@ -381,8 +381,9 @@ object StaffClient{
         if(r.ok){
             SecureConfig.setToken(c,r.body.optString("token"))
             val cursor=r.body.optJSONObject("alert_cursor")
+            // A new employee session needs a fresh one-time catch-up, even on the same handset.
+            ChatNotificationService.resetState(c)
             if(cursor!=null) ChatNotificationService.seedState(c,cursor.optLong("event_id",0L),cursor.optLong("chat_id",0L))
-            else ChatNotificationService.resetState(c)
         }
         return r
     }

@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.8.6 Full Project Final
+name: Build SuperJet Staff v3.8.7 Shared InstaPay & Online Heartbeat
 
 on:
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
         run: gradle :app:assembleDebug :app:testDebugUnitTest --no-daemon
       - name: Rename and verify APK
         run: |
-          APK="SuperJet_Staff_v3.8.6_FULL_PROJECT_FINAL.apk"
+          APK="SuperJet_Staff_v3.8.7_SHARED_INSTAPAY_HEARTBEAT.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK"
           SIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$SIGNER"
@@ -35,17 +35,17 @@ jobs:
           unzip -t "$APK" >/dev/null
       - name: Package matching Android source
         run: |
-          zip -r SuperJet_Staff_v3.8.6_ANDROID_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.8.7_ANDROID_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v3.8.6_FULL_PROJECT_FINAL-${{ github.run_number }}
+          name: SuperJet_Staff_v3.8.7_SHARED_INSTAPAY_HEARTBEAT-${{ github.run_number }}
           path: |
-            SuperJet_Staff_v3.8.6_FULL_PROJECT_FINAL.apk
-            SuperJet_Staff_v3.8.6_ANDROID_SOURCE.zip
+            SuperJet_Staff_v3.8.7_SHARED_INSTAPAY_HEARTBEAT.apk
+            SuperJet_Staff_v3.8.7_ANDROID_SOURCE.zip
       - name: Publish APK release asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v3.8.6-full-project-final-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG"             SuperJet_Staff_v3.8.6_FULL_PROJECT_FINAL.apk             SuperJet_Staff_v3.8.6_ANDROID_SOURCE.zip             --title "SuperJet Staff v3.8.6 Full Project Final (build ${GITHUB_RUN_NUMBER})"             --notes "Android app from the full project release: provider-aware payment notification details, manager-only seat statistics, decision-only booking queue, and current parser. Full Windows SuperJet project source is distributed separately."             --latest
+          TAG="v3.8.7-shared-instapay-heartbeat-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG"             SuperJet_Staff_v3.8.7_SHARED_INSTAPAY_HEARTBEAT.apk             SuperJet_Staff_v3.8.7_ANDROID_SOURCE.zip             --title "SuperJet Staff v3.8.7 Shared InstaPay & Online Heartbeat (build ${GITHUB_RUN_NUMBER})"             --notes "Android update: sticky foreground notification service, employee heartbeat while active, pending shared-InstaPay queue catch-up, and unread customer chat catch-up. Matching Android source is attached."             --latest

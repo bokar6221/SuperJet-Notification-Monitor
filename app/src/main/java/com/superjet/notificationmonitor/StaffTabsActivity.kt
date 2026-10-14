@@ -84,8 +84,10 @@ class StaffTabsActivity : AppCompatActivity() {
     override fun onResume(){
         super.onResume()
         if(SecureConfig.getToken(this).isNotBlank() && content!=null){
+            // Re-assert the foreground worker whenever the employee returns to the app.
+            startBgService()
+            lifecycleScope.launch { withContext(Dispatchers.IO) { StaffClient.heartbeat(this@StaffTabsActivity) } }
             loadTab()
-            lifecycleScope.launch{withContext(Dispatchers.IO){StaffClient.heartbeat(this@StaffTabsActivity)}}
         }
     }
     override fun onNewIntent(i:Intent?){super.onNewIntent(i);setIntent(i);if(SecureConfig.getToken(this).isNotBlank()){loadTab();handleIncomingIntent(i)}}
