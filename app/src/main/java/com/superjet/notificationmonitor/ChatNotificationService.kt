@@ -31,6 +31,7 @@ class ChatNotificationService : Service() {
         private const val LAST_EVENT_ID = "last_event_id"
         private const val LAST_CHAT_ID = "last_chat_id"
         private const val SEEDED = "seeded"
+        private const val PENDING_QUEUE_SYNC_DONE = "pending_queue_sync_v3787_done"
 
         fun resetState(context: Context){
             context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().clear().apply()
@@ -55,7 +56,7 @@ class ChatNotificationService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (SecureConfig.getToken(this).isBlank()) { stopSelf(); return START_NOT_STICKY }
         if (!pollingStarted) { pollingStarted=true; scope.launch { pollLoop() } }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private suspend fun pollLoop() {
@@ -71,8 +72,46 @@ class ChatNotificationService : Service() {
         }
         var backoffMs = 300L
         while(scope.isActive){
-            var nextDelay = 300L
+            // Maintain employee presence while Android permits this foreground service to run.
+            // Polling itself can wait for server messages, so the 15-second heartbeat is sent first.
+            var nextDelay = 15000L
             try{
+                // One-time catch-up for upgrades: notify about pending operations and the newest
+                // unread customer message for each pending booking, even if it predates our cursor.
+                if (!prefs.getBoolean(PENDING_QUEUE_SYNC_DONE,false) || !prefs.getBoolean(SEEDED,false)) {
+                    val init = runCatching { StaffClient.initializeStaffAlerts(this@ChatNotificationService) }.getOrNull()
+                    if (init?.ok == true) {
+                        val initialEvents = init.body.optJSONArray("events") ?: JSONArray()
+                        for (i in 0 until initialEvents.length()) {
+                            val e = initialEvents.optJSONObject(i) ?: continue
+                            showEventNotification(e)
+                        }
+                        val initialMessages = init.body.optJSONArray("messages") ?: JSONArray()
+                        for (i in 0 until initialMessages.length()) {
+                            val m = initialMessages.optJSONObject(i) ?: continue
+                            showChatNotification(m)
+                        }
+                        sinceEvent = init.body.optLong("last_event_id", sinceEvent)
+                        sinceChat = init.body.optLong("last_chat_id", sinceChat)
+                        seedState(this@ChatNotificationService,sinceEvent,sinceChat)
+                        prefs.edit().putBoolean(PENDING_QUEUE_SYNC_DONE,true).apply()
+                    } else {
+                        val initError = init?.error.orEmpty()
+                        if (initError.contains("HTTP_401") || initError.contains("STAFF_AUTH_REQUIRED")) {
+                            stopSelf()
+                            break
+                        }
+                        backoffMs = minOf(15000L, maxOf(1500L, backoffMs*2))
+                        nextDelay = backoffMs
+                        delay(nextDelay)
+                        continue
+                    }
+                }
+                val heartbeat = StaffClient.heartbeat(this@ChatNotificationService)
+                if (!heartbeat.ok && (heartbeat.error.contains("HTTP_401") || heartbeat.error.contains("STAFF_AUTH_REQUIRED"))) {
+                    stopSelf()
+                    break
+                }
                 val r=StaffClient.pollStaffAlerts(this@ChatNotificationService,sinceEvent,sinceChat)
                 if(r.ok){
                     val events=r.body.optJSONArray("events")?:JSONArray()
