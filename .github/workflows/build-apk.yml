@@ -47,5 +47,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v3.8.8-shared-instapay-heartbeat-${GITHUB_RUN_NUMBER}"
+          TAG="v3.8.8-proof-image-fast-view-${GITHUB_RUN_NUMBER}"
           gh release create "$TAG"             SuperJet_Staff_v3.8.8_PROOF_IMAGE_FAST_VIEW.apk             SuperJet_Staff_v3.8.8_ANDROID_SOURCE.zip             --title "SuperJet Staff v3.8.8 Proof Image Fast View (build ${GITHUB_RUN_NUMBER})"             --notes "Android update: display stored proof immediately without blocking on Gemini Vision; prefer authenticated mobile proof URL over expiring public tokens; cache and downsample image bytes; show actionable failure and retry. Existing staff heartbeat and pending queue recovery remain included."             --latest
