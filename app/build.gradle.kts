@@ -10,8 +10,8 @@ android {
         applicationId = "com.superjet.notificationmonitor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 27
-        versionName = "3.8.7-SHARED-INSTAPAY-ONLINE-HEARTBEAT"
+        versionCode = 28
+        versionName = "3.8.8-PROOF-IMAGE-FAST-VIEW"
         buildConfigField("String", "SUPERJET_BASE_URL", "\"https://superjet.tail0f920c.ts.net:8443\"")
     }
     compileOptions {
