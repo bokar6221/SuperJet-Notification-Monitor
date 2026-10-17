@@ -30,6 +30,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.DataOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -422,14 +424,8 @@ class StaffTabsActivity : AppCompatActivity() {
             var r=withContext(Dispatchers.IO){StaffClient.operation(this@StaffTabsActivity,id)}
             if(!r.ok){toast(r.error);return@launch}
             var o=r.body.optJSONObject("operation")?:JSONObject()
-            val proof=o.optJSONObject("proof")?:JSONObject()
-            val initialRec=o.optJSONObject("reconciliation")?:JSONObject()
-            val initialVision=o.optJSONObject("payment_vision")?:initialRec.optJSONObject("vision")?:JSONObject()
-            val needVision=proof.optString("path").isNotBlank() && (initialRec.optBoolean("analysis_pending",false) || initialVision.length()==0)
-            if(needVision){
-                val rr=withContext(Dispatchers.IO){StaffClient.reanalyze(this@StaffTabsActivity,id)}
-                if(rr.ok){r=rr;o=rr.body.optJSONObject("operation")?:o}
-            }
+            // Display saved operation/proof immediately. Gemini analysis is deliberately
+            // user-triggered below, so a slow vision request never blocks opening the proof.
             val proof2=o.optJSONObject("proof")?:JSONObject()
             val rec=o.optJSONObject("reconciliation")?:JSONObject()
             val vision=o.optJSONObject("payment_vision")?:rec.optJSONObject("vision")?:JSONObject()
@@ -492,17 +488,56 @@ class StaffTabsActivity : AppCompatActivity() {
                 addLine("التاريخ / الوقت",tx.optString("transaction_date","—")+" • "+tx.optString("transaction_time","—"))
             }
             val image=ImageView(this@StaffTabsActivity).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.CENTER_INSIDE;minimumHeight=dp(150);setBackgroundColor(Color.parseColor(SURFACE2))}
-            val mediaUrl=proof2.optString("public_media_url").ifBlank{proof2.optString("mobile_media_url").ifBlank{proof2.optString("media_url")}}
-            if(mediaUrl.isNotBlank()){
+            // Prefer the authenticated mobile URL. public_media_url tokens expire after 48 hours
+            // and must only be a compatibility fallback, not the primary image source.
+            val mobileUrl=proof2.optString("mobile_media_url").ifBlank {
+                if(proof2.optString("path").isNotBlank()) "/api/mobile/operations/${Uri.encode(id)}/proof-image" else ""
+            }
+            val mediaCandidates=listOf(
+                mobileUrl,
+                proof2.optString("media_url"),
+                proof2.optString("public_media_url")
+            ).filter{it.isNotBlank()}.distinct()
+            if(mediaCandidates.isNotEmpty()){
                 inner.addView(txt("📷 صورة إثبات التحويل",13f,GREEN,true),match().apply{topMargin=dp(10)})
+                val imageStatus=txt("⏳ جارٍ تحميل صورة الإثبات...",12f,MUTED,false)
+                inner.addView(imageStatus,match().apply{topMargin=dp(5)})
                 inner.addView(image,LinearLayout.LayoutParams(-1,dp(300)).apply{topMargin=dp(6);bottomMargin=dp(6)})
-                lifecycleScope.launch{
-                    val bm=withContext(Dispatchers.IO){loadImage(mediaUrl)}
-                    if(bm!=null) image.setImageBitmap(bm) else image.setImageResource(android.R.drawable.ic_dialog_alert)
+                val retryImage=button("إعادة محاولة تحميل الصورة",BLUE,false).apply{isEnabled=false}
+                inner.addView(retryImage,match().apply{bottomMargin=dp(6)})
+                var loadedBitmap:Bitmap?=null
+                fun loadProofImage(){
+                    imageStatus.text="⏳ جارٍ تحميل صورة الإثبات..."
+                    imageStatus.setTextColor(Color.parseColor(MUTED))
+                    retryImage.isEnabled=false
+                    lifecycleScope.launch{
+                        val bm=withContext(Dispatchers.IO){
+                            mediaCandidates.firstNotNullOfOrNull { candidate ->
+                                loadImage(candidate,id+"_"+proof2.optString("proof_id"))
+                            }
+                        }
+                        if(bm!=null){
+                            loadedBitmap=bm
+                            image.setImageBitmap(bm)
+                            imageStatus.text="تم تحميل صورة الإثبات"
+                            imageStatus.setTextColor(Color.parseColor(GREEN))
+                            retryImage.visibility=View.GONE
+                        }else{
+                            imageStatus.text="تعذّر تحميل الصورة من الخادم. تحقق من الاتصال أو جرّب إعادة المحاولة."
+                            imageStatus.setTextColor(Color.parseColor(RED))
+                            retryImage.isEnabled=true
+                        }
+                    }
                 }
+                retryImage.setOnClickListener{loadProofImage()}
                 image.setOnClickListener{
-                    if(image.drawable!=null) AlertDialog.Builder(this@StaffTabsActivity).setTitle("إثبات التحويل").setView(ImageView(this@StaffTabsActivity).apply{setImageDrawable(image.drawable);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER}).setPositiveButton("إغلاق",null).show()
+                    val bm=loadedBitmap
+                    if(bm==null){toast("الصورة لم تُحمّل بعد؛ اضغط إعادة المحاولة.");return@setOnClickListener}
+                    AlertDialog.Builder(this@StaffTabsActivity).setTitle("إثبات التحويل")
+                        .setView(ImageView(this@StaffTabsActivity).apply{setImageBitmap(bm);adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER})
+                        .setPositiveButton("إغلاق",null).show()
                 }
+                loadProofImage()
             } else inner.addView(txt("📷 لا توجد صورة إثبات محفوظة لهذا الطلب.",12f,ORANGE,true),match().apply{topMargin=dp(10)})
             val re=button("🔎 إعادة تحليل الإثبات",GOLD,true)
             re.setOnClickListener{
@@ -586,13 +621,72 @@ class StaffTabsActivity : AppCompatActivity() {
         return if(code in 200..299)StaffResult(true,jo) else StaffResult(false,jo,"HTTP_"+code+":"+jo.optString("error",raw))
     }
 
-    private fun loadImage(path:String):Bitmap?=runCatching{
+    private fun loadImage(path:String,cacheKey:String):Bitmap?=runCatching{
         val base=SecureConfig.getServerUrl(this).trimEnd('/')
-        val u=if(path.startsWith("http"))path else base+path
-        val cn=(URL(u).openConnection() as HttpURLConnection).apply{connectTimeout=12000;readTimeout=25000;setRequestProperty("Accept","image/*");setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity));setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))}
-        val code=cn.responseCode
-        if(code !in 200..299){cn.disconnect();return@runCatching null}
-        val bm=cn.inputStream.use{BitmapFactory.decodeStream(it)};cn.disconnect();bm
+        if(base.isBlank()) return@runCatching null
+        val baseUrl=URL(base)
+        val target=if(path.startsWith("https://")||path.startsWith("http://")) URL(path)
+                   else URL(base+if(path.startsWith("/"))path else "/"+path)
+        // Do not send the bearer token to a third-party URL returned in server data.
+        if(target.protocol!=baseUrl.protocol||target.host!=baseUrl.host||target.port!=baseUrl.port) return@runCatching null
+
+        val maxBytes=25L*1024L*1024L
+        val safeKey=(cacheKey+"_"+path).hashCode()
+        val cached=File(cacheDir,"sj-proof-$safeKey.img")
+        if(!cached.isFile||cached.length()<=0L){
+            val tmp=File(cacheDir,cached.name+".part")
+            tmp.delete()
+            val cn=(target.openConnection() as HttpURLConnection).apply{
+                connectTimeout=12000
+                readTimeout=30000
+                instanceFollowRedirects=false
+                setRequestProperty("Accept","image/*")
+                setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity))
+                setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))
+            }
+            try{
+                val code=cn.responseCode
+                if(code !in 200..299) return@runCatching null
+                val mime=cn.contentType.orEmpty().lowercase(Locale.ROOT)
+                if(mime.contains("text/html")||mime.contains("application/json")) return@runCatching null
+                if(cn.contentLengthLong>maxBytes) return@runCatching null
+                var total=0L
+                cn.inputStream.use{input->
+                    FileOutputStream(tmp).use{output->
+                        val buffer=ByteArray(16*1024)
+                        while(true){
+                            val count=input.read(buffer)
+                            if(count<0) break
+                            total+=count
+                            if(total>maxBytes){
+                                tmp.delete()
+                                return@runCatching null
+                            }
+                            output.write(buffer,0,count)
+                        }
+                    }
+                }
+                if(!tmp.isFile||tmp.length()<=0L) return@runCatching null
+                if(!tmp.renameTo(cached)){
+                    tmp.copyTo(cached,overwrite=true)
+                    tmp.delete()
+                }
+            }finally{cn.disconnect()}
+        }
+
+        val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true}
+        BitmapFactory.decodeFile(cached.absolutePath,bounds)
+        if(bounds.outWidth<=0||bounds.outHeight<=0){
+            cached.delete()
+            return@runCatching null
+        }
+        var sample=1
+        while(bounds.outWidth/sample>1600||bounds.outHeight/sample>1600) sample*=2
+        val options=BitmapFactory.Options().apply{
+            inSampleSize=sample
+            inPreferredConfig=Bitmap.Config.ARGB_8888
+        }
+        BitmapFactory.decodeFile(cached.absolutePath,options)
     }.getOrNull()
 
     private fun openBookingFromNotification(){ }
