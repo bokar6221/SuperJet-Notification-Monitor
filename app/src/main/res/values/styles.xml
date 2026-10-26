@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.SuperJetNotificationMonitor" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.SuperJetNotificationMonitor" parent="Theme.Material3.Dark.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowBackground">#07111D</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">#07111D</item>
+        <item name="android:colorAccent">#F2C14E</item>
+        <item name="colorPrimary">#F2C14E</item>
+        <item name="colorOnPrimary">#07111D</item>
+        <item name="colorSecondary">#397DFF</item>
+        <item name="colorSurface">#101D2B</item>
+        <item name="colorOnSurface">#F5F7FA</item>
+        <item name="android:textColorPrimary">#F5F7FA</item>
+        <item name="android:textColorSecondary">#9AAABC</item>
     </style>
 </resources>

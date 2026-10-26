@@ -59,7 +59,13 @@ class StaffTabsActivity : AppCompatActivity() {
     private var managerUser=false
     private var selectedImage:Uri?=null
     private var selectedImageLabel:TextView?=null
+    private var selectedOfficialTicketImage:Uri?=null
+    private var officialTicketImageLabel:TextView?=null
     private val imagePicker=registerForActivityResult(ActivityResultContracts.GetContent()){u->selectedImage=u;selectedImageLabel?.text=if(u!=null)"📷 صورة مرفقة" else ""}
+    private val officialTicketPicker=registerForActivityResult(ActivityResultContracts.GetContent()){u->
+        selectedOfficialTicketImage=u
+        officialTicketImageLabel?.text=if(u!=null)"تم اختيار صورة التذكرة الرسمية ✅" else "لم يتم اختيار صورة"
+    }
 
     override fun onCreate(b:Bundle?){
         super.onCreate(b)
@@ -125,7 +131,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val out=button("خروج",RED,false);head.addView(out,wrap());out.setOnClickListener{SecureConfig.clearToken(this);managerUser=false;currentTab=0;stopBgService();showLogin()};root.addView(head,match())
         val tabScroll=HorizontalScrollView(this).apply{isHorizontalScrollBarEnabled=false;setBackgroundColor(Color.parseColor("#0B1622"))}
         val bar=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(7),dp(8),dp(8))}
-        val tabLabels=mutableListOf("🔔 الإشعارات","💬 المحادثات","📋 عمليات الحجز","💰 المدفوعات")
+        val tabLabels=mutableListOf("🔔 الإشعارات","💬 المحادثات","📋 عمليات الحجز","🔎 بحث الحجوزات","💰 المدفوعات")
         if(managerUser) tabLabels.add("📊 إحصاءات المدير")
         if(currentTab>=tabLabels.size) currentTab=0
         tabLabels.forEachIndexed{i,t->val on=i==currentTab;val b=button(t,if(on)GOLD else SURFACE,on);b.textSize=12f;minTabWidth(b);tabs.add(b);bar.addView(b,LinearLayout.LayoutParams(dp(118),dp(54)).apply{if(i>0)marginStart=dp(7)});b.setOnClickListener{selectTab(i)}};tabScroll.addView(bar);root.addView(tabScroll,match())
@@ -146,7 +152,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val now=System.currentTimeMillis()
         if(!force && now-lastTabLoadAt<1200L) return
         lastTabLoadAt=now
-        when(currentTab){0->loadNotifications();1->loadChats();2->loadBookingOperations();3->loadPayments();4->loadManagerStats()}
+        when(currentTab){0->loadNotifications();1->loadChats();2->loadBookingOperations();3->loadBookingSearch();4->loadPayments();5->loadManagerStats()}
     }
 
     private fun loadNotifications(){
@@ -257,24 +263,41 @@ class StaffTabsActivity : AppCompatActivity() {
         top.addView(txt(o.optString("booking_id").ifBlank{"حجز"},14f,TEXT,true),LinearLayout.LayoutParams(0,-2,1f))
         top.addView(pill(statusText(st),statusColor(st)),wrap());b.addView(top)
         b.addView(txt(payment.first,12.5f,payment.second,true),match().apply{topMargin=dp(6)})
-        val guestCode=o.optString("guest_booking_code").ifBlank{"300"}
+        val guestCode=o.optString("guest_booking_code").trim()
         b.addView(txt(o.optString("customer_name").ifBlank{"عميل"}+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمقاعد: "+seatText(o.optString("seats_json"))+"\nالمبلغ: "+fmt(o.optDouble("amount",0.0))+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(7)})
         if(st=="TICKET_READY"){
-            b.addView(txt("كود الحجز للغير: "+guestCode+" ✅",12f,GOLD,true),match().apply{topMargin=dp(6)})
+            b.addView(txt(if(guestCode.isNotBlank())"كود الحجز للغير: "+guestCode+" ✅" else "⚠ لم يرجع الخادم كود طباعة رسميًا؛ لا ترسل كودًا تخمينيًا.",12f,if(guestCode.isNotBlank())GOLD else ORANGE,true),match().apply{topMargin=dp(6)})
         }
         b.addView(txt(if(proof)"📷 إثبات التحويل: موجود — اضغط لعرضه" else "📷 إثبات التحويل: لم يصل بعد",11f,if(proof)GREEN else ORANGE,true),match().apply{topMargin=dp(6)})
         val infoRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
         val proofBtn=button(if(proof)"📷 عرض الإثبات" else "📷 ملف الدفع",BLUE,false);infoRow.addView(proofBtn,weight());proofBtn.setOnClickListener{showOperationReview(id)}
         val chat=button("محادثة 💬",SURFACE,false);infoRow.addView(chat,weight().apply{marginStart=dp(6)});chat.setOnClickListener{openChat(id,o.optString("booking_id"))}
         b.addView(infoRow,match().apply{topMargin=dp(8)})
-        if(!terminal){
-            val actionRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
-            val yes=button(if(proof)"تأكيد ✓" else "تأكيد — أرسل الإثبات",GREEN,false);val no=button("رفض ×",RED,false)
-            yes.isEnabled=proof
-            actionRow.addView(yes,weight());actionRow.addView(no,weight().apply{marginStart=dp(6)})
-            yes.setOnClickListener{approveFromOperations(id)};no.setOnClickListener{rejectFromOperations(id)}
-            b.addView(actionRow,match().apply{topMargin=dp(7)})
-        } else b.addView(txt("العملية نهائية — المحادثة وتفاصيل الإثبات متاحة للمراجعة.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        when {
+            st=="SEAT_VERIFIED_PENDING_BOOKING" -> {
+                b.addView(txt("اجتاز الطلب التأكيد الأول. اختر الإجراء المناسب لحالة الحجز الرسمي.",10.5f,ORANGE,true),match().apply{topMargin=dp(8)})
+                val actionRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL}
+                val finalBtn=button("التأكيد الثاني: تنفيذ الحجز من التطبيق",GOLD,true)
+                finalBtn.setOnClickListener{confirmFinalBooking(id)}
+                actionRow.addView(finalBtn,match())
+                val existingBtn=button("الحجز تم من الموقع — تسجيل التذكرة",BLUE,false)
+                existingBtn.setOnClickListener{recordExistingOfficialBooking(id)}
+                actionRow.addView(existingBtn,match().apply{topMargin=dp(7)})
+                actionRow.addView(txt("إذا كان الحجز قد تم بالفعل من موقع SuperJet في المتصفح، لا تنفذ التأكيد الثاني مرة أخرى؛ استخدم تسجيل التذكرة الموجودة.",10f,MUTED,false),match().apply{topMargin=dp(5)})
+                b.addView(actionRow,match().apply{topMargin=dp(7)})
+            }
+            st=="BOOKING_IN_PROGRESS" -> b.addView(txt("محاولة الحجز قيد التسوية. لا تكرر التأكيد؛ تحقق من الموقع الرسمي أو راجع المدير.",11f,ORANGE,true),match().apply{topMargin=dp(8)})
+            st=="SEAT_CHANGED_AFTER_PAYMENT" -> b.addView(txt("المقعد لم يعد متاحًا. انتظر اختيار العميل مقعدًا بديلًا في الرحلة نفسها.",11f,ORANGE,true),match().apply{topMargin=dp(8)})
+            !terminal -> {
+                val actionRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
+                val yes=button(if(proof)"التأكيد الأول: فحص الدفع والمقعد" else "التأكيد — إثبات الدفع مطلوب",GREEN,false);val no=button("رفض ×",RED,false)
+                yes.isEnabled=proof
+                actionRow.addView(yes,weight());actionRow.addView(no,weight().apply{marginStart=dp(6)})
+                yes.setOnClickListener{approveFromOperations(id)};no.setOnClickListener{rejectFromOperations(id)}
+                b.addView(actionRow,match().apply{topMargin=dp(7)})
+            }
+            else -> b.addView(txt("العملية نهائية — المحادثة وتفاصيل الإثبات متاحة للمراجعة.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
+        }
         setOnClickListener{showOperationReview(id)}
         addView(b)
     }
@@ -282,11 +305,77 @@ class StaffTabsActivity : AppCompatActivity() {
     private fun approveFromOperations(id:String){
         lifecycleScope.launch{
             val r=withContext(Dispatchers.IO){StaffClient.approve(this@StaffTabsActivity,id)}
-            toast(if(r.ok)"تم الاعتماد وإصدار التذكرة في «تذكرتي»." else r.error)
-            // The server may commit the approval before a later finalization response fails.
-            // Always refresh so committed terminal decisions disappear immediately.
+            val state=r.body.optString("status")
+            val err=r.body.optString("error")
+            toast(when {
+                r.ok && state=="SEAT_VERIFIED_PENDING_BOOKING" -> "نجح التأكيد الأول. إذا لم يكن الحجز قد تم من الموقع، استخدم التأكيد الثاني."
+                err=="SECOND_CONFIRMATION_REQUIRED" || state=="SEAT_VERIFIED_PENDING_BOOKING" -> "التأكيد الأول مسجل بالفعل. إذا حجزت من الموقع، سجّل التذكرة الموجودة لتجنب الحجز المكرر."
+                r.ok && state=="TICKET_READY" -> r.body.optString("message").ifBlank{"الحجز الرسمي مؤكد والتذكرة جاهزة."}
+                else -> r.body.optString("message").ifBlank{r.error}
+            })
             loadBookingOperations()
         }
+    }
+
+    private fun confirmFinalBooking(id:String){
+        AlertDialog.Builder(this)
+            .setTitle("التأكيد الثاني: الحجز الرسمي")
+            .setMessage("سيُرسل طلب حجز جديد إلى موقع SuperJet. إذا كنت قد أكملت الحجز بالفعل من المتصفح، لا تضغط تنفيذ؛ استخدم «الحجز تم من الموقع — تسجيل التذكرة».")
+            .setNegativeButton("رجوع",null)
+            .setPositiveButton("تنفيذ الحجز الرسمي"){_,_-> lifecycleScope.launch{
+                val r=withContext(Dispatchers.IO){StaffClient.confirmBooking(this@StaffTabsActivity,id)}
+                val state=r.body.optString("status")
+                val err=r.body.optString("error")
+                toast(when {
+                    r.ok -> r.body.optString("message").ifBlank{"تمت الاستجابة من النظام."}
+                    err=="BOOKING_CONFIRMATION_ALREADY_IN_PROGRESS" || state=="BOOKING_IN_PROGRESS" -> "الطلب قيد المعالجة. لا تكرر الإرسال؛ تحقق من الموقع الرسمي."
+                    else -> r.body.optString("message").ifBlank{r.error}
+                })
+                loadBookingOperations()
+            }}.show()
+    }
+
+    private fun recordExistingOfficialBooking(id:String){
+        selectedOfficialTicketImage=null
+        officialTicketImageLabel=null
+        val panel=LinearLayout(this).apply{
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(8),dp(4),dp(8),dp(2))
+        }
+        panel.addView(txt("استخدم هذا الخيار فقط بعد التأكد من أن الحجز موجود بالفعل في موقع SuperJet. أدخل المرجع الرسمي الظاهر في صفحة/تذكرة الحجز وأرفق صورة التذكرة. لا تستخدم كودًا تخمينيًا.",11f,ORANGE,true),match().apply{bottomMargin=dp(10)})
+        val ref=EditText(this).apply{
+            hint="رقم الحجز الرسمي / مرجع التذكرة"
+            setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED))
+            setSingleLine(true);inputType=InputType.TYPE_CLASS_TEXT
+            setPadding(dp(12),dp(10),dp(12),dp(10))
+            setBackgroundColor(Color.parseColor(SURFACE2))
+        }
+        panel.addView(ref,match().apply{bottomMargin=dp(8)})
+        val pick=button("اختيار صورة التذكرة الرسمية",BLUE,false)
+        panel.addView(pick,match().apply{bottomMargin=dp(5)})
+        val label=txt("لم يتم اختيار صورة",10.5f,MUTED,false)
+        officialTicketImageLabel=label
+        panel.addView(label,match())
+        pick.setOnClickListener{officialTicketPicker.launch("image/*")}
+        val dialog=AlertDialog.Builder(this).setTitle("تسجيل حجز موجود على الموقع").setView(panel)
+            .setPositiveButton("تسجيل التذكرة في تذكرتي",null).setNegativeButton("إلغاء",null).create()
+        dialog.setOnShowListener{
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
+                val officialRef=ref.text?.toString()?.trim().orEmpty()
+                val uri=selectedOfficialTicketImage
+                if(officialRef.isBlank()){ref.error="أدخل المرجع الرسمي الظاهر في النظام";return@setOnClickListener}
+                if(uri==null){toast("اختر صورة التذكرة الرسمية أولًا.");return@setOnClickListener}
+                val submit=dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                submit.isEnabled=false
+                lifecycleScope.launch{
+                    val r=withContext(Dispatchers.IO){StaffClient.uploadOfficialTicket(this@StaffTabsActivity,id,officialRef,uri)}
+                    toast(if(r.ok)r.body.optString("message").ifBlank{"تم تسجيل التذكرة الرسمية."} else r.body.optString("message").ifBlank{r.error})
+                    if(r.ok){dialog.dismiss();selectedOfficialTicketImage=null;loadBookingOperations()}
+                    else submit.isEnabled=true
+                }
+            }
+        }
+        dialog.show()
     }
     private fun rejectFromOperations(id:String){
         val e=EditText(this).apply{hint="سبب الرفض";setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED));minLines=2}
@@ -297,6 +386,61 @@ class StaffTabsActivity : AppCompatActivity() {
             loadBookingOperations()
         }}.setNegativeButton("إلغاء",null).show()
     }
+    private fun loadBookingSearch(){
+        clear()
+        content?.addView(title("بحث الحجوزات","ابحث عن حجز قديم أو مؤكد باستخدام رقم موبايل العميل أو كود/رقم الحجز."))
+        val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
+        val query=EditText(this).apply{
+            hint="رقم الموبايل أو كود الحجز"
+            setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED))
+            setSingleLine(true);inputType=InputType.TYPE_CLASS_TEXT
+            setPadding(dp(12),dp(10),dp(12),dp(10))
+            setBackgroundColor(Color.parseColor(SURFACE2))
+        }
+        val find=button("بحث",GOLD,true)
+        row.addView(query,LinearLayout.LayoutParams(0,dp(50),1f))
+        row.addView(find,wrap().apply{marginStart=dp(7)})
+        content?.addView(row,match().apply{bottomMargin=dp(10)})
+        val results=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        content?.addView(results,match())
+        find.setOnClickListener{performBookingSearch(query.text?.toString().orEmpty(),results)}
+        query.setOnEditorActionListener{_,_,_->performBookingSearch(query.text?.toString().orEmpty(),results);true}
+    }
+
+    private fun performBookingSearch(rawQuery:String,results:LinearLayout){
+        val q=rawQuery.trim()
+        if(q.length<2){toast("أدخل رقم موبايل أو كود حجز مكوّنًا من حرفين على الأقل.");return}
+        results.removeAllViews()
+        results.addView(empty("جارٍ البحث..."),match())
+        lifecycleScope.launch{
+            val r=withContext(Dispatchers.IO){StaffClient.search(this@StaffTabsActivity,q)}
+            if(currentTab!=3)return@launch
+            results.removeAllViews()
+            if(!r.ok){results.addView(empty(r.body.optString("message").ifBlank{r.error}),match());return@launch}
+            val arr=r.body.optJSONArray("results")?:JSONArray()
+            if(arr.length()==0){results.addView(empty("لا توجد حجوزات مطابقة."),match());return@launch}
+            for(i in 0 until arr.length()){
+                val x=arr.optJSONObject(i)?:continue
+                val opId=x.optString("operation_id")
+                val bookingId=x.optString("booking_id").ifBlank{"—"}
+                val state=x.optString("status").ifBlank{"غير محددة"}
+                val phone=x.optString("customer_phone").ifBlank{x.optString("phone").ifBlank{"—"}}
+                val customer=x.optString("customer_name").ifBlank{"عميل"}
+                val amount=fmt(x.optDouble("amount",0.0))
+                val body=LinearLayout(this@StaffTabsActivity).apply{
+                    orientation=LinearLayout.VERTICAL
+                    setPadding(dp(12),dp(10),dp(12),dp(10))
+                    addView(txt(bookingId,14f,GOLD,true),match())
+                    addView(txt(customer+"\nالهاتف: "+phone+"\nالحالة: "+state+"\nالمبلغ: "+amount+" جنيه",11.5f,MUTED,false),match().apply{topMargin=dp(5)})
+                    val open=button("فتح تفاصيل العملية",BLUE,false)
+                    open.setOnClickListener{if(opId.isBlank())toast("لا يوجد رقم عملية مرتبط بهذه النتيجة.") else showOperationReview(opId)}
+                    addView(open,match().apply{topMargin=dp(8)})
+                }
+                content?.addView(card(SURFACE,16f).apply{addView(body)},match().apply{bottomMargin=dp(7)})
+            }
+        }
+    }
+
     private fun loadPayments(){
         clear();content?.addView(title("المدفوعات","المعلقة والناجحة والمرفوضة. الإجمالي المالي يحسب الناجح فقط."))
         lifecycleScope.launch{
@@ -444,7 +588,7 @@ class StaffTabsActivity : AppCompatActivity() {
             addLine("الموعد",o.optString("travel_date")+" • "+o.optString("travel_time"))
             addLine("المقاعد",seatText(o.optString("seats_json")))
             addLine("مبلغ الحجز",fmt(o.optDouble("amount",0.0))+" جنيه",GOLD,true)
-            addLine("كود الحجز للغير",o.optString("guest_booking_code").ifBlank{"300"},GOLD,true)
+            addLine("كود الحجز للغير",o.optString("guest_booking_code").ifBlank{"غير متاح"},GOLD,true)
             addLine("وسيلة الدفع",o.optString("payment_method").ifBlank{"—"})
             addLine("حالة المطابقة",match.optString("status").ifBlank{"PENDING"}+" • "+match.optString("reason").ifBlank{"في انتظار اكتمال الأدلة"},payment.second,true)
             inner.addView(txt("تفاصيل فحوص الدفع",13f,TEXT,true),match().apply{topMargin=dp(10)})
@@ -696,8 +840,17 @@ class StaffTabsActivity : AppCompatActivity() {
     private fun clear(){content?.removeAllViews()}
     private fun summary(t:String,v:String,c:String)=card(SURFACE,16f).apply{val r=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;setPadding(dp(12),dp(10),dp(12),dp(10))};r.addView(txt(t,11f,MUTED,true),LinearLayout.LayoutParams(0,-2,1f));r.addView(txt(v,18f,c,true),wrap());addView(r)}
     private fun title(t:String,s:String)=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;addView(txt(t,20f,TEXT,true),match());addView(txt(s,11f,MUTED,false),match().apply{topMargin=dp(4);bottomMargin=dp(10)})}
-    private fun statusText(s:String)=when(s){"TICKET_READY"->"ناجحة";"PAYMENT_REJECTED"->"مرفوضة";"PAYMENT_APPROVED"->"معتمدة";"PAYMENT_REVIEW"->"تحت المراجعة";else->"معلقة"}
-    private fun statusColor(s:String)=when(s){"TICKET_READY","PAYMENT_APPROVED"->GREEN;"PAYMENT_REJECTED"->RED;else->ORANGE}
+    private fun statusText(s:String)=when(s){
+        "TICKET_READY"->"ناجحة"
+        "PAYMENT_REJECTED"->"مرفوضة"
+        "PAYMENT_APPROVED"->"معتمدة — تنتظر فحص المقعد"
+        "SEAT_VERIFIED_PENDING_BOOKING"->"بانتظار التأكيد الثاني"
+        "BOOKING_IN_PROGRESS"->"الحجز قيد المعالجة"
+        "SEAT_CHANGED_AFTER_PAYMENT"->"بانتظار مقعد بديل"
+        "PAYMENT_REVIEW"->"تحت المراجعة"
+        else->"معلقة"
+    }
+    private fun statusColor(s:String)=when(s){"TICKET_READY","PAYMENT_APPROVED","SEAT_VERIFIED_PENDING_BOOKING"->GREEN;"PAYMENT_REJECTED"->RED;else->ORANGE}
     private fun provider(p:String)=when(p){"VODAFONE_CASH"->"VF-Cash";"ORANGE_CASH"->"Orange Cash";"ETISALAT_CASH"->"Etisalat Cash";"WE_PAY"->"WE Pay";"INSTAPAY"->"InstaPay";else->p.ifBlank{"إشعار دفع"}}
     private fun fmt(v:Double)=String.format(Locale.US,"%.2f",v)
     private fun txt(s:String,size:Float,color:String,bold:Boolean)=TextView(this).apply{text=s;textSize=size;setTextColor(Color.parseColor(color));typeface=if(bold)Typeface.DEFAULT_BOLD else Typeface.DEFAULT;setLineSpacing(0f,1.14f)}

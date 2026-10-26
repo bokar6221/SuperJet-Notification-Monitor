@@ -47,3 +47,13 @@ https://superjet.tail0f920c.ts.net:8443
 - Booking queue displays only operations that require a decision; approved/rejected records stay available in Payments history.
 - Fresh APK build validates Android package signature and ZIP integrity.
 - This repository contains the Android app; the full Windows SuperJet project bundle is distributed separately and contains the matching backend source.
+
+
+## Version 3.8.9 — Dual confirmation and official booking reconciliation
+- Staff booking cards distinguish first live-seat confirmation from second official booking.
+- If a booking was already completed on the official website, staff can record the existing official ticket and upload its image instead of submitting another reservation.
+- The second-confirmation prompt warns that it sends a new live booking request; in-progress requests do not expose a repeat action.
+- Adds a booking search tab for customer mobile and booking/operation code.
+- Forces dark dialog surfaces and readable text/input contrast for rejection reasons and other forms.
+- Removes hard-coded fallback guest booking code 300 when the server did not supply a code.
+- Retains fast authenticated proof-image preview and builds a fresh APK via GitHub Actions.

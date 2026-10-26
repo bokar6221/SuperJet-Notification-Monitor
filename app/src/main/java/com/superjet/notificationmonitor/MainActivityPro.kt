@@ -393,6 +393,40 @@ object StaffClient{
     fun operation(c:Context,id:String)=req(c,"GET","/api/mobile/operations/"+id,null,true)
     fun reanalyze(c:Context,id:String)=req(c,"POST","/api/mobile/operations/$id/reanalyze-proof","{}",true)
     fun approve(c:Context,id:String)=req(c,"POST","/api/mobile/operations/$id/approve","{}",true)
+    fun confirmBooking(c:Context,id:String)=req(c,"POST","/api/mobile/operations/$id/confirm-booking","{}",true)
+    fun uploadOfficialTicket(c:Context,operationId:String,officialRef:String,uri:Uri):StaffResult{
+        val base=SecureConfig.getServerUrl(c).trimEnd('/')
+        if(base.isBlank())return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
+        if(officialRef.isBlank())return StaffResult(false,error="OFFICIAL_BOOKING_REFERENCE_REQUIRED")
+        val mime=c.contentResolver.getType(uri)?.lowercase(Locale.ROOT).orEmpty().ifBlank{"image/jpeg"}
+        val safeMime=when(mime){"image/png","image/webp","image/jpeg"->mime;else->"image/jpeg"}
+        val ext=when(safeMime){"image/png"->"png";"image/webp"->"webp";else->"jpg"}
+        val boundary="----SuperJetTicketBoundary"+UUID.randomUUID()
+        val cn=(java.net.URL(base+"/api/mobile/operations/"+operationId+"/ticket").openConnection() as java.net.HttpURLConnection).apply{
+            requestMethod="POST";connectTimeout=C;readTimeout=R;doOutput=true
+            setRequestProperty("Accept","application/json")
+            setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(c))
+            setRequestProperty("X-SuperJet-Device-Id",deviceId(c))
+            setRequestProperty("Content-Type","multipart/form-data; boundary="+boundary)
+        }
+        return try{
+            java.io.DataOutputStream(cn.outputStream).use{out->
+                out.writeBytes("--"+boundary+"\r\n")
+                out.writeBytes("Content-Disposition: form-data; name=\"final_booking_ref\"\r\n\r\n")
+                out.write(officialRef.toByteArray(Charsets.UTF_8));out.writeBytes("\r\n")
+                out.writeBytes("--"+boundary+"\r\n")
+                out.writeBytes("Content-Disposition: form-data; name=\"ticket\"; filename=\"official_ticket."+ext+"\"\r\n")
+                out.writeBytes("Content-Type: "+safeMime+"\r\n\r\n")
+                c.contentResolver.openInputStream(uri)?.use{it.copyTo(out)}?:return StaffResult(false,error="TICKET_IMAGE_READ_FAILED")
+                out.writeBytes("\r\n--"+boundary+"--\r\n")
+            }
+            val code=cn.responseCode
+            val stream=if(code in 200..299)cn.inputStream else cn.errorStream
+            val raw=if(stream!=null)java.io.BufferedReader(java.io.InputStreamReader(stream,Charsets.UTF_8)).use{it.readText()} else ""
+            val json=runCatching{JSONObject(raw)}.getOrElse{JSONObject()}
+            if(code in 200..299)StaffResult(true,json) else StaffResult(false,json,"HTTP_"+code+":"+json.optString("error",raw))
+        }catch(e:Exception){StaffResult(false,error=e.javaClass.simpleName+":"+(e.message?:"upload error"))}finally{cn.disconnect()}
+    }
     fun reject(c:Context,id:String,reason:String)=req(c,"POST","/api/mobile/operations/$id/reject",JSONObject().put("reason",reason).toString(),true)
     fun chat(c:Context,operationId:String)=req(c,"GET","/api/mobile/operations/"+operationId+"/chat",null,true)
     fun sendChat(c:Context,operationId:String,message:String):StaffResult{
