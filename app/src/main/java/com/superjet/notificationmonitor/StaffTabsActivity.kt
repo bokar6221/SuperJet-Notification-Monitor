@@ -58,6 +58,9 @@ class StaffTabsActivity : AppCompatActivity() {
     private var currentTab=0
     private var managerUser=false
     private var bookingOperationsLoading=false
+    private var bookingOperationsStatusLine:TextView?=null
+    private var bookingOperationsResults:LinearLayout?=null
+    private var bookingOperationsRefresh:MaterialButton?=null
     private var selectedImage:Uri?=null
     private var selectedImageLabel:TextView?=null
     private var selectedOfficialTicketImage:Uri?=null
@@ -232,8 +235,7 @@ class StaffTabsActivity : AppCompatActivity() {
     }
 
     private fun loadBookingOperations(){
-        if(bookingOperationsLoading) return
-        bookingOperationsLoading=true
+        val requestAlreadyInProgress=bookingOperationsLoading
         clear()
         content?.addView(title("عمليات الحجز","تعرض هذه القائمة العمليات التي تحتاج قرارًا فقط. بعد الاعتماد أو الرفض تختفي من هنا، ويظل سجلها في تبويب المدفوعات."))
 
@@ -247,6 +249,9 @@ class StaffTabsActivity : AppCompatActivity() {
         content?.addView(refresh,match().apply{bottomMargin=dp(8)})
         val results=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         content?.addView(results,match())
+        bookingOperationsStatusLine=statusLine
+        bookingOperationsResults=results
+        bookingOperationsRefresh=refresh
 
         if(cached.length()>0){
             val savedAt=getSharedPreferences("superjet_booking_operations_cache",MODE_PRIVATE).getLong("saved_at",0L)
@@ -259,30 +264,42 @@ class StaffTabsActivity : AppCompatActivity() {
             if(bookingOperationsLoading){toast("تحديث القائمة جارٍ بالفعل.");return@setOnClickListener}
             loadBookingOperations()
         }
+        if(requestAlreadyInProgress){
+            statusLine.text="تحديث القائمة قيد التنفيذ؛ آخر نسخة محفوظة ظاهرة للقراءة فقط."
+            return
+        }
+        bookingOperationsLoading=true
 
         lifecycleScope.launch{
             var r=withContext(Dispatchers.IO){apiGet("/api/mobile/booking-operations")}
             if(!r.ok && (r.error.contains("SocketTimeoutException",true)||r.error.contains("timeout",true))){
-                statusLine.text="استغرق الخادم وقتًا طويلًا — تتم محاولة تحديث واحدة إضافية. القائمة المحفوظة تظل ظاهرة."
+                bookingOperationsStatusLine?.text="استغرق الخادم وقتًا طويلًا — تتم محاولة تحديث واحدة إضافية. القائمة المحفوظة تظل ظاهرة."
                 delay(650)
                 r=withContext(Dispatchers.IO){apiGet("/api/mobile/booking-operations")}
             }
             bookingOperationsLoading=false
+            if(r.ok){
+                val current=r.body.optJSONArray("current")?:JSONArray()
+                saveCachedBookingOperations(current)
+            }
             if(currentTab!=2) return@launch
+            val activeStatus=bookingOperationsStatusLine?:return@launch
+            val activeResults=bookingOperationsResults?:return@launch
+            val activeRefresh=bookingOperationsRefresh
             if(!r.ok){
-                refresh.isEnabled=true
-                statusLine.text=if(cached.length()>0) "تعذر تحديث القائمة الآن ("+r.error+"). البيانات المعروضة محفوظة وقديمة؛ اضغط تحديث لاحقًا." else "تعذر تحميل عمليات الحجز ("+r.error+"). اضغط تحديث لإعادة المحاولة."
-                if(cached.length()==0){
-                    results.removeAllViews()
-                    results.addView(empty("تعذر تحميل العمليات. يمكنك إعادة المحاولة دون إعادة أي حجز أو قرار."),match())
+                activeRefresh?.isEnabled=true
+                val freshCache=readCachedBookingOperations()
+                activeStatus.text=if(freshCache.length()>0) "تعذر تحديث القائمة الآن ("+r.error+"). آخر بيانات محفوظة ظاهرة؛ اضغط تحديث لاحقًا." else "تعذر تحميل عمليات الحجز ("+r.error+"). اضغط تحديث لإعادة المحاولة."
+                if(freshCache.length()==0){
+                    activeResults.removeAllViews()
+                    activeResults.addView(empty("تعذر تحميل العمليات. يمكنك إعادة المحاولة دون إعادة أي حجز أو قرار."),match())
                 }
                 return@launch
             }
             val current=r.body.optJSONArray("current")?:JSONArray()
-            saveCachedBookingOperations(current)
-            statusLine.text="تم تحديث القائمة الآن • "+SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(Date())
-            results.removeAllViews()
-            renderBookingOperationsInto(results,current,readOnly=false)
+            activeStatus.text="تم تحديث القائمة الآن • "+SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(Date())
+            activeResults.removeAllViews()
+            renderBookingOperationsInto(activeResults,current,readOnly=false)
         }
     }
 
