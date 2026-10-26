@@ -373,7 +373,7 @@ class MainActivityPro : AppCompatActivity() {
 
 data class StaffResult(val ok:Boolean,val body:JSONObject=JSONObject(),val error:String="")
 object StaffClient{
-    private const val C=10000;private const val R=20000
+    private const val C=12000;private const val R=35000
     fun deviceId(c:Context)=Settings.Secure.getString(c.contentResolver,Settings.Secure.ANDROID_ID)?.takeIf{it.isNotBlank()}?:UUID.nameUUIDFromBytes((c.packageName+android.os.Build.MODEL).toByteArray()).toString()
     fun login(c:Context,u:String,p:String):StaffResult{
         val j=JSONObject().apply{put("username",u);put("password",p);put("device_id",deviceId(c))}

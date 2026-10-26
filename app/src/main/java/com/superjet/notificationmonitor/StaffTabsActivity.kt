@@ -57,6 +57,7 @@ class StaffTabsActivity : AppCompatActivity() {
     private val tabs=mutableListOf<MaterialButton>()
     private var currentTab=0
     private var managerUser=false
+    private var bookingOperationsLoading=false
     private var selectedImage:Uri?=null
     private var selectedImageLabel:TextView?=null
     private var selectedOfficialTicketImage:Uri?=null
@@ -231,18 +232,90 @@ class StaffTabsActivity : AppCompatActivity() {
     }
 
     private fun loadBookingOperations(){
-        clear();content?.addView(title("عمليات الحجز","تعرض هذه القائمة العمليات التي تحتاج قرارًا فقط. بعد الاعتماد أو الرفض تختفي من هنا، ويظل سجلها في تبويب المدفوعات."))
-        lifecycleScope.launch{
-            val r=withContext(Dispatchers.IO){apiGet("/api/mobile/booking-operations")}
-            if(!r.ok){content?.addView(empty("تعذر تحميل عمليات الحجز: "+r.error));return@launch}
-            val current=r.body.optJSONArray("current")?:JSONArray()
-            content?.addView(txt("عمليات تحتاج قرارًا (${current.length()})",16f,TEXT,true),match().apply{bottomMargin=dp(7)})
-            if(current.length()==0) {
-                content?.addView(empty("لا توجد عمليات تحتاج تأكيدًا أو رفضًا حاليًا.\nالعمليات المنتهية محفوظة للمراجعة في تبويب المدفوعات."),match())
-            } else {
-                for(i in 0 until current.length()) content?.addView(bookingOperationCard(current.optJSONObject(i)?:continue,false),match().apply{bottomMargin=dp(8)})
-            }
+        if(bookingOperationsLoading) return
+        bookingOperationsLoading=true
+        clear()
+        content?.addView(title("عمليات الحجز","تعرض هذه القائمة العمليات التي تحتاج قرارًا فقط. بعد الاعتماد أو الرفض تختفي من هنا، ويظل سجلها في تبويب المدفوعات."))
+
+        val cached=readCachedBookingOperations()
+        val statusLine=txt(
+            if(cached.length()>0) "عرض آخر بيانات محفوظة — جاري تحديث القائمة من الخادم…" else "جاري تحميل العمليات…",
+            11f, if(cached.length()>0) ORANGE else MUTED, true
+        )
+        content?.addView(statusLine,match().apply{bottomMargin=dp(7)})
+        val refresh=button("تحديث القائمة",GOLD,true)
+        content?.addView(refresh,match().apply{bottomMargin=dp(8)})
+        val results=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        content?.addView(results,match())
+
+        if(cached.length()>0){
+            val savedAt=getSharedPreferences("superjet_booking_operations_cache",MODE_PRIVATE).getLong("saved_at",0L)
+            if(savedAt>0L) statusLine.text="عرض آخر نسخة محفوظة من "+SimpleDateFormat("HH:mm • dd/MM",Locale.getDefault()).format(Date(savedAt))+" — للعرض فقط أثناء التحديث."
+            renderBookingOperationsInto(results,cached,readOnly=true)
+        } else {
+            results.addView(empty("جارٍ جلب العمليات من الخادم. ستظهر القائمة هنا فور وصول البيانات."),match())
         }
+        refresh.setOnClickListener{
+            if(bookingOperationsLoading){toast("تحديث القائمة جارٍ بالفعل.");return@setOnClickListener}
+            loadBookingOperations()
+        }
+
+        lifecycleScope.launch{
+            var r=withContext(Dispatchers.IO){apiGet("/api/mobile/booking-operations")}
+            if(!r.ok && (r.error.contains("SocketTimeoutException",true)||r.error.contains("timeout",true))){
+                statusLine.text="استغرق الخادم وقتًا طويلًا — تتم محاولة تحديث واحدة إضافية. القائمة المحفوظة تظل ظاهرة."
+                delay(650)
+                r=withContext(Dispatchers.IO){apiGet("/api/mobile/booking-operations")}
+            }
+            bookingOperationsLoading=false
+            if(currentTab!=2) return@launch
+            if(!r.ok){
+                refresh.isEnabled=true
+                statusLine.text=if(cached.length()>0) "تعذر تحديث القائمة الآن ("+r.error+"). البيانات المعروضة محفوظة وقديمة؛ اضغط تحديث لاحقًا." else "تعذر تحميل عمليات الحجز ("+r.error+"). اضغط تحديث لإعادة المحاولة."
+                if(cached.length()==0){
+                    results.removeAllViews()
+                    results.addView(empty("تعذر تحميل العمليات. يمكنك إعادة المحاولة دون إعادة أي حجز أو قرار."),match())
+                }
+                return@launch
+            }
+            val current=r.body.optJSONArray("current")?:JSONArray()
+            saveCachedBookingOperations(current)
+            statusLine.text="تم تحديث القائمة الآن • "+SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(Date())
+            results.removeAllViews()
+            renderBookingOperationsInto(results,current,readOnly=false)
+        }
+    }
+
+    private fun renderBookingOperationsInto(target:LinearLayout,items:JSONArray,readOnly:Boolean){
+        if(items.length()==0){
+            target.addView(empty("لا توجد عمليات تحتاج تأكيدًا أو رفضًا حاليًا.\nالعمليات المنتهية محفوظة للمراجعة في تبويب المدفوعات."),match())
+            return
+        }
+        target.addView(txt("عمليات تحتاج قرارًا (${items.length()})",16f,TEXT,true),match().apply{bottomMargin=dp(7)})
+        for(i in 0 until items.length()){
+            val item=items.optJSONObject(i)?:continue
+            target.addView(bookingOperationCard(item,readOnly),match().apply{bottomMargin=dp(8)})
+        }
+    }
+
+    private fun readCachedBookingOperations():JSONArray{
+        val prefs=getSharedPreferences("superjet_booking_operations_cache",MODE_PRIVATE)
+        return runCatching{JSONArray(prefs.getString("current_json","[]")?: "[]")}.getOrElse{JSONArray()}
+    }
+
+    private fun saveCachedBookingOperations(items:JSONArray){
+        val compact=JSONArray()
+        val allowed=arrayOf("operation_id","booking_id","status","guest_booking_code","customer_name","from_name","to_name","travel_date","travel_time","seats_json","amount","proof_available","payment_match_status")
+        for(i in 0 until items.length()){
+            val src=items.optJSONObject(i)?:continue
+            val dst=JSONObject()
+            for(key in allowed) if(src.has(key)) runCatching{dst.put(key,src.opt(key))}
+            compact.put(dst)
+        }
+        getSharedPreferences("superjet_booking_operations_cache",MODE_PRIVATE).edit()
+            .putString("current_json",compact.toString())
+            .putLong("saved_at",System.currentTimeMillis())
+            .apply()
     }
 
     private fun compactPaymentResult(o:JSONObject):Pair<String,String>{
@@ -750,7 +823,7 @@ class StaffTabsActivity : AppCompatActivity() {
         val base=SecureConfig.getServerUrl(this).trimEnd('/')
         if(base.isBlank()) return StaffResult(false,error="SERVER_URL_NOT_CONFIGURED")
         val cn=(URL(base+path).openConnection() as HttpURLConnection).apply{
-            requestMethod="GET";connectTimeout=12000;readTimeout=25000
+            requestMethod="GET";connectTimeout=12000;readTimeout=45000
             setRequestProperty("Accept","application/json")
             setRequestProperty("Authorization","Bearer "+SecureConfig.getToken(this@StaffTabsActivity))
             setRequestProperty("X-SuperJet-Device-Id",StaffClient.deviceId(this@StaffTabsActivity))

@@ -57,3 +57,11 @@ https://superjet.tail0f920c.ts.net:8443
 - Forces dark dialog surfaces and readable text/input contrast for rejection reasons and other forms.
 - Removes hard-coded fallback guest booking code 300 when the server did not supply a code.
 - Retains fast authenticated proof-image preview and builds a fresh APK via GitHub Actions.
+
+
+## Version 3.9.0 — Instant cached booking operations
+- The booking-operations tab now renders the last successful compact list immediately while fetching fresh state from the server.
+- Cached entries are read-only until a fresh server response arrives, preventing decisions from stale statuses.
+- On a socket timeout, the screen keeps cached operations visible and performs at most one safe retry of the GET request.
+- Longer response timeouts reduce transient failures on slow connections; staff GET timeout is 45 seconds and shared API client timeout is 35 seconds.
+- Successful server responses replace and refresh the cache; cache omits phone numbers and other unnecessary customer fields.
