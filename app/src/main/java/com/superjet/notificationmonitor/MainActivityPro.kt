@@ -227,9 +227,13 @@ class MainActivityPro : AppCompatActivity() {
             b.addView(txt(o.optString("customer_name")+"\n"+o.optString("from_name")+" → "+o.optString("to_name")+"\n"+o.optString("travel_date")+" • "+o.optString("travel_time")+"\nالمبلغ: "+String.format(Locale.US,"%.2f",o.optDouble("amount",0.0))+" جنيه",12.5f,MUTED,false),match().apply{bottomMargin=dp(10)})
             val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL}
             val yes=button("تأكيد  ✓",GREEN,false);val no=button("رفض  ×",RED,false);val chat=button("محادثة  💬",BLUE,false)
+            val status=o.optString("status").uppercase(Locale.ROOT)
+            val canReject=status in setOf("PAYMENT_PENDING","PROOF_RECEIVED","PAYMENT_REVIEW","STAFF_REVIEW")
+            no.isEnabled=canReject
+            if(!canReject){no.text="غير متاح";no.alpha=0.55f}
             row.addView(yes,weight());row.addView(no,weight().apply{marginStart=dp(7)});row.addView(chat,weight().apply{marginStart=dp(7)});b.addView(row);chat.setOnClickListener{showChatDialog(o.optString("operation_id"),o.optString("booking_id"))}
             yes.setOnClickListener{operationAction(o.optString("operation_id"),true)}
-            no.setOnClickListener{reject(o.optString("operation_id"))}
+            no.setOnClickListener{if(canReject)reject(o.optString("operation_id")) else toast("لا يمكن رفض العملية بعد اعتماد الدفع أو أثناء تنفيذ الحجز.")}
             box.addView(c,match().apply{bottomMargin=dp(9)})
         }
     }
@@ -272,11 +276,36 @@ class MainActivityPro : AppCompatActivity() {
     }
 
     private fun reject(id:String){
-        val e=EditText(this).apply{hint="سبب الرفض";minLines=2;setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED))}
-        AlertDialog.Builder(this).setTitle("رفض عملية الدفع").setView(e).setPositiveButton("رفض"){_,_->lifecycleScope.launch{
-            val r=withContext(Dispatchers.IO){StaffClient.reject(this@MainActivityPro,id,e.text.toString().ifBlank{"رفض موظف"})}
-            toast(if(r.ok)"تم رفض العملية." else r.error);if(r.ok)refresh()
-        }}.setNegativeButton("إلغاء",null).show()
+        if(id.isBlank()){toast("رقم العملية غير متاح.");return}
+        val e=EditText(this).apply{
+            hint="اكتب سبب الرفض (مطلوب)";minLines=2
+            setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED))
+            setPadding(dp(12),dp(10),dp(12),dp(10));setBackgroundColor(Color.parseColor(SURFACE2))
+        }
+        val dialog=AlertDialog.Builder(this).setTitle("رفض عملية الدفع")
+            .setMessage("سيُحفظ السبب في سجل العملية ويظهر للعميل في المحادثة.")
+            .setView(e).setPositiveButton("تأكيد الرفض",null).setNegativeButton("إلغاء",null).create()
+        dialog.setOnShowListener{
+            val positive=dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            positive.setOnClickListener{
+                val reason=e.text?.toString()?.trim().orEmpty()
+                if(reason.isBlank()){e.error="اكتب سبب الرفض.";return@setOnClickListener}
+                positive.isEnabled=false;positive.text="جارٍ التسجيل…"
+                lifecycleScope.launch{
+                    val r=withContext(Dispatchers.IO){StaffClient.reject(this@MainActivityPro,id,reason)}
+                    val message=r.body.optString("message").ifBlank{when(r.body.optString("error")){
+                        "PAYMENT_ALREADY_APPROVED"->"تم اعتماد الدفع بالفعل؛ لا يمكن رفضه الآن."
+                        "DECISION_ALREADY_RECORDED"->"تم تسجيل قرار سابق لهذه العملية."
+                        "CUSTOMER_SERVICE_REQUIRED"->"لا يملك الحساب صلاحية رفض عمليات الدفع."
+                        else->r.error.ifBlank{"تعذر تسجيل قرار الرفض."}
+                    }}
+                    toast(message)
+                    refresh()
+                    if(r.ok)dialog.dismiss() else {positive.isEnabled=true;positive.text="تأكيد الرفض"}
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun showSearchDialog(){

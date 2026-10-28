@@ -311,7 +311,7 @@ class StaffTabsActivity : AppCompatActivity() {
         target.addView(txt("عمليات تحتاج قرارًا (${items.length()})",16f,TEXT,true),match().apply{bottomMargin=dp(7)})
         for(i in 0 until items.length()){
             val item=items.optJSONObject(i)?:continue
-            target.addView(bookingOperationCard(item,readOnly),match().apply{bottomMargin=dp(8)})
+            target.addView(bookingOperationCard(item,terminal=false,readOnly=readOnly),match().apply{bottomMargin=dp(8)})
         }
     }
 
@@ -346,7 +346,7 @@ class StaffTabsActivity : AppCompatActivity() {
         }
     }
 
-    private fun bookingOperationCard(o:JSONObject,terminal:Boolean)=card(SURFACE,17f).apply{
+    private fun bookingOperationCard(o:JSONObject,terminal:Boolean,readOnly:Boolean=false)=card(SURFACE,17f).apply{
         val id=o.optString("operation_id");val st=o.optString("status").ifBlank{"PAYMENT_PENDING"};val proof=o.optBoolean("proof_available",false);val payment=compactPaymentResult(o)
         val b=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(11),dp(12),dp(11))}
         val top=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
@@ -363,7 +363,9 @@ class StaffTabsActivity : AppCompatActivity() {
         val proofBtn=button(if(proof)"📷 عرض الإثبات" else "📷 ملف الدفع",BLUE,false);infoRow.addView(proofBtn,weight());proofBtn.setOnClickListener{showOperationReview(id)}
         val chat=button("محادثة 💬",SURFACE,false);infoRow.addView(chat,weight().apply{marginStart=dp(6)});chat.setOnClickListener{openChat(id,o.optString("booking_id"))}
         b.addView(infoRow,match().apply{topMargin=dp(8)})
-        when {
+        if(readOnly){
+            b.addView(txt("البيانات المحفوظة للعرض فقط. حدّث القائمة قبل تنفيذ أي قرار.",10.5f,ORANGE,true),match().apply{topMargin=dp(8)})
+        } else when {
             st=="SEAT_VERIFIED_PENDING_BOOKING" -> {
                 b.addView(txt("اجتاز الطلب التأكيد الأول. اختر الإجراء المناسب لحالة الحجز الرسمي.",10.5f,ORANGE,true),match().apply{topMargin=dp(8)})
                 val actionRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.VERTICAL}
@@ -378,7 +380,8 @@ class StaffTabsActivity : AppCompatActivity() {
             }
             st=="BOOKING_IN_PROGRESS" -> b.addView(txt("محاولة الحجز قيد التسوية. لا تكرر التأكيد؛ تحقق من الموقع الرسمي أو راجع المدير.",11f,ORANGE,true),match().apply{topMargin=dp(8)})
             st=="SEAT_CHANGED_AFTER_PAYMENT" -> b.addView(txt("المقعد لم يعد متاحًا. انتظر اختيار العميل مقعدًا بديلًا في الرحلة نفسها.",11f,ORANGE,true),match().apply{topMargin=dp(8)})
-            !terminal -> {
+            st=="PAYMENT_APPROVED" || st=="APPROVED_PENDING_FINAL_BOOKING" -> b.addView(txt("تم اعتماد الدفع بالفعل. الرفض غير متاح الآن؛ راجع حالة إصدار التذكرة.",11f,ORANGE,true),match().apply{topMargin=dp(8)})
+            !terminal && st in setOf("PAYMENT_PENDING","PROOF_RECEIVED","PAYMENT_REVIEW","STAFF_REVIEW") -> {
                 val actionRow=LinearLayout(this@StaffTabsActivity).apply{orientation=LinearLayout.HORIZONTAL}
                 val yes=button(if(proof)"التأكيد الأول: فحص الدفع والمقعد" else "التأكيد — إثبات الدفع مطلوب",GREEN,false);val no=button("رفض ×",RED,false)
                 yes.isEnabled=proof
@@ -386,7 +389,7 @@ class StaffTabsActivity : AppCompatActivity() {
                 yes.setOnClickListener{approveFromOperations(id)};no.setOnClickListener{rejectFromOperations(id)}
                 b.addView(actionRow,match().apply{topMargin=dp(7)})
             }
-            else -> b.addView(txt("العملية نهائية — المحادثة وتفاصيل الإثبات متاحة للمراجعة.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
+            else -> b.addView(txt("لا توجد إجراءات متاحة لهذه الحالة. راجع سجل المدفوعات أو المدير.",10.5f,MUTED,false),match().apply{topMargin=dp(7)})
         }
         setOnClickListener{showOperationReview(id)}
         addView(b)
@@ -468,13 +471,44 @@ class StaffTabsActivity : AppCompatActivity() {
         dialog.show()
     }
     private fun rejectFromOperations(id:String){
-        val e=EditText(this).apply{hint="سبب الرفض";setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED));minLines=2}
-        AlertDialog.Builder(this).setTitle("رفض الحجز").setView(e).setPositiveButton("رفض"){_,_->lifecycleScope.launch{
-            val r=withContext(Dispatchers.IO){StaffClient.reject(this@StaffTabsActivity,id,e.text.toString().ifBlank{"رفض موظف"})}
-            toast(if(r.ok)"تم رفض العملية وحفظها في سجل المدفوعات." else r.error)
-            // Refresh even after a network error; the decision may already be committed.
-            loadBookingOperations()
-        }}.setNegativeButton("إلغاء",null).show()
+        if(id.isBlank()){toast("رقم العملية غير متاح.");return}
+        val e=EditText(this).apply{
+            hint="اكتب سبب الرفض (مطلوب)"
+            setTextColor(Color.parseColor(TEXT));setHintTextColor(Color.parseColor(MUTED))
+            minLines=2
+            setPadding(dp(12),dp(10),dp(12),dp(10))
+            setBackgroundColor(Color.parseColor(SURFACE2))
+        }
+        val dialog=AlertDialog.Builder(this).setTitle("رفض إثبات الدفع").setMessage("سيُسجل السبب في سجل العملية ويظهر للعميل في محادثته.")
+            .setView(e).setPositiveButton("تأكيد الرفض",null).setNegativeButton("إلغاء",null).create()
+        dialog.setOnShowListener{
+            val positive=dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            positive.setOnClickListener{
+                val reason=e.text?.toString()?.trim().orEmpty()
+                if(reason.isBlank()){e.error="اكتب سبب الرفض حتى يستطيع العميل تصحيح المشكلة.";return@setOnClickListener}
+                positive.isEnabled=false
+                positive.text="جارٍ تسجيل الرفض…"
+                lifecycleScope.launch{
+                    val r=withContext(Dispatchers.IO){StaffClient.reject(this@StaffTabsActivity,id,reason)}
+                    val serverMessage=r.body.optString("message").ifBlank{
+                        when(r.body.optString("error")){
+                            "PAYMENT_ALREADY_APPROVED"->"تم اعتماد الدفع بالفعل؛ لا يمكن رفض العملية بعد الاعتماد."
+                            "OPERATION_NOT_FOUND"->"لم تعد العملية موجودة في قائمة المراجعة."
+                            "DECISION_ALREADY_RECORDED"->"تم تسجيل قرار سابق لهذه العملية. تم تحديث القائمة."
+                            "CUSTOMER_SERVICE_REQUIRED"->"حسابك لا يملك صلاحية رفض عمليات الدفع."
+                            else->r.error.ifBlank{"تعذر حفظ قرار الرفض."}
+                        }
+                    }
+                    toast(serverMessage)
+                    loadBookingOperations()
+                    if(r.ok) dialog.dismiss() else {
+                        positive.isEnabled=true
+                        positive.text="تأكيد الرفض"
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
     private fun loadBookingSearch(){
         clear()

@@ -65,3 +65,10 @@ https://superjet.tail0f920c.ts.net:8443
 - On a socket timeout, the screen keeps cached operations visible and performs at most one safe retry of the GET request.
 - Longer response timeouts reduce transient failures on slow connections; staff GET timeout is 45 seconds and shared API client timeout is 35 seconds.
 - Successful server responses replace and refresh the cache; cache omits phone numbers and other unnecessary customer fields.
+
+
+## Version 3.9.1 — Reject reliability
+- Reject dialog requires a reason, disables the action while saving, uses backend message, and refreshes the operations list even if the response is ambiguous.
+- Reject is exposed only for payment states allowed by the server; approved, booking-in-progress and ticket-ready states no longer present a non-working reject action.
+- Cached booking operations are explicitly read-only while refresh is pending, avoiding stale approvals/rejections.
+- Timeout retry remains GET-only and limited to one retry.

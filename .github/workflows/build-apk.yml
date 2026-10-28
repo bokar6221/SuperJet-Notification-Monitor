@@ -1,4 +1,4 @@
-name: Build SuperJet Staff v3.9.0 Instant Cached Booking Operations
+name: Build SuperJet Staff v3.9.1 Reject Reliability
 
 on:
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
         run: gradle :app:assembleDebug :app:testDebugUnitTest --no-daemon
       - name: Rename and verify APK
         run: |
-          APK="SuperJet_Staff_v3.9.0_INSTANT_CACHED_BOOKING_OPERATIONS.apk"
+          APK="SuperJet_Staff_v3.9.1_REJECT_RELIABILITY.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$APK"
           SIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$SIGNER"
@@ -35,17 +35,17 @@ jobs:
           unzip -t "$APK" >/dev/null
       - name: Package matching Android source
         run: |
-          zip -r SuperJet_Staff_v3.9.0_ANDROID_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
+          zip -r SuperJet_Staff_v3.9.1_ANDROID_SOURCE.zip . -x ".git/*" -x "app/build/*" -x ".gradle/*"
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SuperJet_Staff_v3.9.0_INSTANT_CACHED_BOOKING_OPERATIONS-${{ github.run_number }}
+          name: SuperJet_Staff_v3.9.1_REJECT_RELIABILITY-${{ github.run_number }}
           path: |
-            SuperJet_Staff_v3.9.0_INSTANT_CACHED_BOOKING_OPERATIONS.apk
-            SuperJet_Staff_v3.9.0_ANDROID_SOURCE.zip
+            SuperJet_Staff_v3.9.1_REJECT_RELIABILITY.apk
+            SuperJet_Staff_v3.9.1_ANDROID_SOURCE.zip
       - name: Publish APK release asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v3.9.0-instant-cached-booking-operations-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG"             SuperJet_Staff_v3.9.0_INSTANT_CACHED_BOOKING_OPERATIONS.apk             SuperJet_Staff_v3.9.0_ANDROID_SOURCE.zip             --title "SuperJet Staff v3.9.0 Instant Cached Booking Operations (build ${GITHUB_RUN_NUMBER})"             --notes "Android update: display last successful booking-operations list immediately from a compact local cache; refresh in background with one retry on timeout; improve staff GET timeout; keep stale items read-only until fresh state arrives; retain dual confirmation, official-ticket reconciliation, booking search, dark dialogs and fast proof-image view."             --latest
+          TAG="v3.9.1-reject-reliability-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG"             SuperJet_Staff_v3.9.1_REJECT_RELIABILITY.apk             SuperJet_Staff_v3.9.1_ANDROID_SOURCE.zip             --title "SuperJet Staff v3.9.1 Reject Reliability (build ${GITHUB_RUN_NUMBER})"             --notes "Android update: robust reject-reason dialog with explicit server error messages and list refresh; reject is enabled only for states the server allows; cached booking list is clearly read-only while refreshing; prevents stale actions and overlapping requests; retains dual confirmation, official-ticket reconciliation, booking search, dark dialogs and fast proof-image view."             --latest
